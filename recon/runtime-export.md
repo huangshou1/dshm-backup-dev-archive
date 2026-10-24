@@ -1,4 +1,3 @@
-[Uploading runtime-export.md…]()
 # DSHM 备份/迁移：运行时能力与导出路径侦查（task-3）
 
 - 环境：HarmonyOS 7.0.0.109SP6 平板，DSHM `com.dshm.dshclient`，core `0.2.1-rc.2+dshm.73`，profile `ondevice`
