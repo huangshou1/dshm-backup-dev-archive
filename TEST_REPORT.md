@@ -1,4 +1,3 @@
-[TEST_REPORT.md](https://github.com/user-attachments/files/33900304/TEST_REPORT.md)
 # TEST_REPORT.md — 平板端测试、静态检查与外部复核修复记录（插件 v0.1.3）
 
 - 设备：华为 MatePad Edge 平板（HarmonyOS 7.0.0.109SP6），DSHM `com.dshm.dshclient`，
