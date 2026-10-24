@@ -1,4 +1,4 @@
-# TEST_REPORT.md — 平板端测试、静态检查与外部复核修复记录（插件 v0.1.3）
+# TEST_REPORT.md — 平板端测试、静态检查与外部复核修复记录（插件 v0.1.4）
 
 - 设备：华为 MatePad Edge 平板（HarmonyOS 7.0.0.109SP6），DSHM `com.dshm.dshclient`，
   平板实测核心 `0.2.1-rc.2+dshm.73`。
@@ -34,7 +34,7 @@
 
 ## 2. 本轮已实际执行并通过的检查（以 `tablet-test-results.json` 为准）
 
-本轮检查覆盖原有 50 项 + v0.1.1 回归 25 项 + v0.1.2 复审边界 5 项 + v0.1.3 D1 回归 4 项，最终运行 **PASS=84 FAIL=0 SKIP=0**。
+本轮检查覆盖原有 50 项 + v0.1.1 回归 25 项 + v0.1.2 复审边界 5 项 + v0.1.3 D1 回归 4 项 + v0.1.4 D2 回归 3 项，最终运行 **PASS=87 FAIL=0 SKIP=0**。
 
 ### 2.1 真实 JS 解析与语言约束
 - `lib/index.js`、`backup.js`、`restore.js`、`util.js`、`format.js`、`zip.js` 全部通过
@@ -232,4 +232,42 @@
 - 已知限制：appVersion 无法取得（unknown）、端侧安装器仅支持 npm/GitHub 标识、
   workspace.json 冷重启窗口、`DSHM_CORE_DIR` 缺失时 unknown、无系统文件选择/分享、ZIP64<4GiB、
   `&path:` 安装形式未由平板实测。
+
+---
+
+## 11. v0.1.4：手机第二阶段 D2（copyFile EPERM）修复后的平板自测
+
+### 11.1 手机第二阶段实际结果（来自手机截图/记录，非平板测试）
+
+- v0.1.3 预览正常（6/1/6/4、目标全新、重映射），恢复在 78% 因
+  `EPERM copyfile`（沙箱 staging → 用户 Download `dshm-backup-restored`）失败；
+- 失败后目标可能部分写入；第二阶段未通过；卸载保留/恢复结论暂不能给出；
+- 证据归档：`reports/phone-stage2-failure-v0.1.3-20261024.md` 与截图目录；
+- 本版修复：`copyFileAtomic` 改为流式 read/write（pipeline），不再调用 `copyFile`。
+
+### 11.2 平板已执行
+
+- esprima 解析全部 JS 与 JS 测试文件（含新增 D2 用例）；
+- 静态检查：`util.js` 无 `copyFile(`；`copyFileAtomic` 使用 createReadStream/createWriteStream/pipeline，
+  保留 chmod 0600 与 fsync；
+- 原 D1/第二阶段阻断回归、静态/合成检查继续执行；最终计数以 `test/tablet-test-results.json` 为准。
+- **平板未执行真实 JS**（无 node CLI）。
+
+### 11.3 真实 JS 测试（需外部 node 执行）
+
+| 文件 | 覆盖 | 平板状态 |
+|---|---|---|
+| `dshm-backup/test/zip.test.mjs` | ZIP 18/18 基线 | 外部 v0.1.2 已通过；v0.1.4 待复跑 |
+| `test/backup-boundaries.test.mjs` | coreDir/platform、损坏 header、registry | 未在平板执行 |
+| `test/restore-boundaries.test.mjs` | 回滚既有目录/未跟踪文件 | 未在平板执行 |
+| `test/attachment-copy.test.mjs` | D1 0400 附件 + D2 沙箱→用户目录嵌套目标 | 未在平板执行（v0.1.4 新增 D2 用例） |
+
+### 11.4 未解决/待验收
+
+- 外部真实 node 执行 v0.1.4 四份 JS 测试；
+- 手机第二阶段重跑（需先清理上次失败的部分目标数据，用户再次批准清洗/重装）：
+  卸载保留 + 全新实例恢复；
+- 异常测试/回滚演练另行批准；
+- 已知限制：appVersion null、安装通道仅 npm/GitHub、workspace.json 冷重启窗口、
+  coreDir unknown 兜底、无系统文件选择/分享、ZIP64<4GiB、`&path:` 安装形式未平板实测。
 
