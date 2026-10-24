@@ -1,4 +1,5 @@
-# TEST_REPORT.md — 平板端测试、静态检查与外部复核修复记录（插件 v0.1.2）
+[TEST_REPORT.md](https://github.com/user-attachments/files/33900304/TEST_REPORT.md)
+# TEST_REPORT.md — 平板端测试、静态检查与外部复核修复记录（插件 v0.1.3）
 
 - 设备：华为 MatePad Edge 平板（HarmonyOS 7.0.0.109SP6），DSHM `com.dshm.dshclient`，
   平板实测核心 `0.2.1-rc.2+dshm.73`。
@@ -34,7 +35,7 @@
 
 ## 2. 本轮已实际执行并通过的检查（以 `tablet-test-results.json` 为准）
 
-本轮检查覆盖原有 50 项 + v0.1.1 回归 25 项 + v0.1.2 复审边界 5 项，最终运行 **PASS=80 FAIL=0 SKIP=0**。
+本轮检查覆盖原有 50 项 + v0.1.1 回归 25 项 + v0.1.2 复审边界 5 项 + v0.1.3 D1 回归 4 项，最终运行 **PASS=84 FAIL=0 SKIP=0**。
 
 ### 2.1 真实 JS 解析与语言约束
 - `lib/index.js`、`backup.js`、`restore.js`、`util.js`、`format.js`、`zip.js` 全部通过
@@ -195,4 +196,41 @@
 - 手机分阶段：安装加载、合成备份、完整性校验、外部导出；卸载/全新恢复另行批准；
 - 残余风险：workspace.json 冷重启窗口、`DSHM_CORE_DIR` 缺失时 unknown、无系统文件选择/分享、
   ZIP64 <4 GiB、`&path:` 安装形式未实测。
+
+---
+
+## 10. v0.1.3：手机第一阶段 D1 修复后的平板自测（本轮）
+
+### 10.1 手机第一阶段实际结果（来自手机回传，非平板测试）
+
+- 安装/冷重启/插件加载/按钮/面板/路由/版本字段：通过；
+- 主动备份与自动基线备份：**失败**（42%，附件复制阶段 `EACCES`），第一阶段阻塞；
+- 根因：DSHM 附件为 0o400，`copyFileAtomic` 的 tmp 继承 0400，随后 `fsyncFile` 以 `r+` 打开失败；
+- 本版修复：`copyFileAtomic` copy 后显式 chmod 0o600 再 fsync；源 mode 不变；
+- 真实 JS 回归新增：`test/attachment-copy.test.mjs`（0400 源复制 + 含 0400 附件实例备份）。
+
+### 10.2 本轮平板端实际执行
+
+- esprima 解析全部 JS 与全部 JS 测试文件（含新增 `attachment-copy.test.mjs`）；
+- AST/静态检查：`copyFileAtomic` 的 chmod 位于 fsync 之前；无继承 0400 的旧路径；
+- 合成 fixture/Python 参考回归：原有 80 项 + 本轮 D1 修复回归；
+- 结果以 `test/tablet-test-results.json` 为准；其中仍**不包含**真实 JS 执行。
+
+### 10.3 真实 JS 测试（新增/保留，均需外部 node 执行）
+
+| 文件 | 覆盖 | 平板状态 |
+|---|---|---|
+| `dshm-backup/test/zip.test.mjs` | ZIP 读写/CRC/压缩/路径安全 | 外部 v0.1.2 已 18/18；v0.1.3 待复跑 |
+| `test/backup-boundaries.test.mjs` | coreDir=null/platform=null、损坏 header、registry 跳过；新增无 zstd 时明文 fallback | **未在平板执行** |
+| `test/restore-boundaries.test.mjs` | 既有 sessionDir+无关文件、新建目录、未跟踪文件 rolledBack=false | **未在平板执行** |
+| `test/attachment-copy.test.mjs` | 0o400 源复制、含 0400 附件实例备份/校验 | **未在平板执行**（本版新增，外部待跑） |
+
+### 10.4 未解决/待验收
+
+- 外部真实 node 执行 v0.1.3 四份 JS 测试；
+- 手机第一阶段重新验收（安装加载、合成备份、校验、外部导出）；
+- 卸载保留/全新恢复/回滚/异常测试仍须分别批准；
+- 已知限制：appVersion 无法取得（unknown）、端侧安装器仅支持 npm/GitHub 标识、
+  workspace.json 冷重启窗口、`DSHM_CORE_DIR` 缺失时 unknown、无系统文件选择/分享、ZIP64<4GiB、
+  `&path:` 安装形式未由平板实测。
 
