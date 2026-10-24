@@ -1,4 +1,3 @@
-[Uploading HANDOFF_PHONE.md…]()
 # HANDOFF_PHONE.md — 手机金丝雀真实验收交接
 
 > 适用对象：用户 + 手机上的 DSHM Agent。
