@@ -4,7 +4,7 @@
 > **尚未在手机金丝雀机做真实安装/备份/恢复验收**；在手机验收完成、缺陷修复并经用户明确授权前，
 > 不要把它安装到平板主力实例，也不要在平板上执行真实恢复。
 
-DSHM（HarmonyOS 端 DeepSeek Harness）备份与迁移工具（插件 **v0.1.3**）：纯宿主 DSHM 插件 +
+DSHM（HarmonyOS 端 DeepSeek Harness）备份与迁移工具（插件 **v0.1.4**）：纯宿主 DSHM 插件 +
 注入式 Web UI，零第三方依赖、零静态 `inject`。2026-10-24 外部源码复核与手机第一阶段 D1 修复后重新生成，
 修复项与复验状态见 [FIX_REPORT.md](FIX_REPORT.md)；在本轮修复包通过再次源码审查/手机验收前，
 不要把它当作正式可用版本。功能：
@@ -105,6 +105,9 @@ manifest（格式版本、时间、来源核心版本各维度、逐文件 SHA-2
 4. **校验选中备份**：对任意备份重新读取 manifest/逐文件 SHA-256/旁文件，显示是否通过。
 
 ## 已知限制（如实声明）
+
+> v0.1.4 修复：恢复时从应用沙箱 staging 到用户可见目录的 `copyFile` 被 OHOS
+> 拒绝（EPERM）；`copyFileAtomic` 已改为流式读写复制（不调用 copyFile）。需手机第二阶段重跑验证。
 
 1. **真实端到端未在平板验证**：本机无 node CLI，无法执行插件 JS；已做真实 JS 解析（esprima）、
    AST 安全/适配检查、合成 fixture 参考测试（详见 TEST_REPORT.md）。外部复核曾用真实 node 执行
