@@ -1,0 +1,339 @@
+# FIX_REPORT.md — 外部源码复核退回修复报告（插件 v0.1.1）
+
+- 修复对象：`dshm-backup-dev/`（插件 `dshm-backup` 0.1.0 → **0.1.1**）。
+- 背景：外部源码复核对全部 JS 文件做了真实语法检查（通过），并用真实 node 执行
+  `dshm-backup/test/zip.test.mjs`：**修复前 13/18 通过、5 项失败**（集中于 deflate 条目的
+  声明大小/实际解压大小不一致、`hashZipEntries` 失败、`extractZip` 失败、5 MiB 文件读取失败）。
+  根因定位到 `lib/zip.js` 的 `writeEntryData()` 管道顺序：`source → deflate → crcTransform`
+  使 CRC/`rawSize` 统计的是压缩后数据。
+- 本报告记录本轮逐项修改、已执行的检查、只能静态检查项、以及仍需外部真实 JS 测试/手机 DSHM
+  验收项。**平板本机无 node CLI，本轮所有 JS 逻辑仍未在平板执行**；外部临时审查副本的
+  18/18 结果不冒充“平板已执行 JS 测试”。
+
+---
+
+## 1. ZIP 阻断缺陷（writeEntryData 管道顺序）
+
+**修改文件**：`dshm-backup/lib/zip.js`
+
+- 管道改为：`sourceStream → crcTransform →（method===8 时）createDeflateRaw → sink`。
+- 保证 `state.rawSize`/CRC 统计的是**原始数据**；`compressedSize` 由 sink 写入的压缩字节数计算；
+  local header（data descriptor 模式）与中央目录分别使用同一组 `crc32Value / compressedSize /
+  uncompressedSize`。
+- 增加注释说明该顺序是 ZIP 语义要求，禁止改回。
+
+**已执行的检查**：`test/run_tablet_tests.py` 新增「ZIP 写管线顺序」静态回归：
+`streams=[sourceStream, crcTransform]`、deflate 只在其后追加、writeEntryData 返回字段、
+data descriptor/中央目录字段字节序与变量存在性。结果：PASS。
+
+**仍需**：真实 node 环境执行 `node --test dshm-backup/test/zip.test.mjs` 复验（外部复核已用临时
+副本验证 18/18；**正式修复包仍需外部真实测试与手机真实备份复验**，不得由本报告代替）。
+
+## 2. 全新实例误判（系统默认空白工作区）
+
+**修改文件**：`lib/format.js`（`assessFreshTarget` 重写）、`lib/restore.js`（`readTargetState`）。
+
+- `readTargetState` 收集：`storedSessionCount`、`archivedSessionIds`、`pinnedSessionIds`、
+  `defaultWorkspaceId`、`workspaceIds`、每个工作区的 `path/sessionIds/title/createdAt/updatedAt`、
+  `hasPendingMutation`、Host 当前默认工作区路径（`host-ready.json.workspace` / `paths.workspaceRoot`）。
+- `assessFreshTarget` 仅允许严格可识别的「系统自动创建的空白默认工作区」：
+  无 stored session、无归档、无置顶、无 pendingMutation；恰好 1 条记录且等于
+  `global.defaultWorkspaceId`；`sessionIds` 为空；`path` 与 Host 当前默认工作区一致；
+  记录数与 `workspaceIds` 一致；无无法解释的额外记录。
+- 其余情况（用户创建的空白工作区、含会话工作区、多个工作区、结构无法确认、Host 默认路径缺失等）
+  继续拒绝恢复并给出原因。支持 `workspace.json` 不存在/未初始化且无数据的严格空实例。
+- 新增 `targetFingerprint`（registry SHA、会话 id 集合、workspaceIds/default/archived/pinned 等），
+  供执行恢复前判断目标是否变化。
+
+**已执行的检查**：新增「全新实例判定矩阵（参考实现）」12 个用例（仅系统默认空白=True，其余均拒绝）、
+「全新实例判定规则（代码契约）」。结果：PASS。
+
+**仍需**：手机真实全新实例（系统自动默认工作区）恢复验收；结构差异可能因 DSHM 版本/壳行为不同，
+若无法确认则保持拒绝（见 §8）。
+
+## 3. 回滚虚假成功
+
+**修改文件**：`lib/restore.js`（`rollbackRestore` 重写）、`lib/util.js`（新增
+`removeFileStrict` / `removeTreeStrict`）、`lib/backup.js`（失败清理、轮换严格判定）。
+
+- 回滚不再使用 `removeFileQuietly` / `removeTreeQuietly` 作为成功依据：
+  - 文件/会话目录使用 strict 删除，并在删除后再次 `pathExists` 确认不存在；
+  - 本次创建的空目录用 **非递归 `rmdir`**：非空即失败并保留（避免误删未跟踪数据）；
+  - `workspace.json` 恢复后重新读取并与快照原文比对；原本不存在时删除后确认不存在；
+  - 只有全部创建项与 registry 均确认恢复/清理成功才 `rolledBack=true`；否则 `rolledBack=false`
+    且返回 `failures[]` 路径与原因；
+  - 保留恢复前 registry 快照（`stateDir/rollback/pre-restore-*.json`）作为证据，不因回滚删除。
+- 备份失败路径的 staging/临时文件清理改为严格删除 + 失败记录，不再默认“已清理”。
+- `rotateBackups` 使用严格删除并复核；删除失败/未确认写入 `failed[]`，不谎称删除成功。
+
+**已执行的检查**：静态检查（回滚函数无 Quietly、含 strict/rmdir/stillExists/rolledBack 条件、
+保留快照）+ 参考实现（非空目录删除失败 → `rolledBack=false`）+ 原有「导入失败回滚」检查。
+结果：PASS。
+
+**仍需**：外部真实 JS 测试（模拟删除失败）与手机真实恢复失败/回滚演练。
+
+## 4. 恢复执行前必须重新检查目标
+
+**修改文件**：`lib/restore.js`（`inspectBackup`/`executeRestore`）、`lib/index.js`（`/api/restore`）。
+
+- `inspectBackup` 把 `conflicts`、`canRestore`、`targetFingerprint`、`targetFresh` 写入 `internal`。
+- `executeRestore` 在**任何 staging 解压、目录创建或目标写入之前**：
+  重新 `readTargetState` → 按新规则重判全新；比较 `targetFingerprint`（变化即
+  `RESTORE_PREVIEW_STALE`）；重新计算恢复映射并与预览映射比较；重新执行
+  `collectRestoreConflicts`（会话冲突/文件冲突/映射/越界）。任一不符即拒绝并要求重新预览。
+- `/api/restore` 服务端强制检查 `internal.canRestore === true` 且 `conflicts` 为空，
+  不只依赖客户端禁用按钮。
+- 新增 `RESTORE_PREVIEW_STALE` / `RESTORE_PREVIEW_INVALID` 错误码与中文说明。
+
+**已执行的检查**：「预览后目标变化回归（参考实现）：预览后新建会话 → 不再全新、指纹变化」+
+代码契约（重读/指纹/映射/冲突检查都发生在 `ensureDir(stagingRoot)` 之前；服务端有
+canRestore/conflicts 检查）。结果：PASS。
+
+**仍需**：外部真实 JS 测试与手机「预览后新建会话再确认恢复必须拒绝」的实机验收。
+
+## 5. 异常抢备节流与轮换
+
+**修改文件**：`lib/index.js`（`finalizeJobState` / `triggerEmergencyBackup`）。
+
+- 只有 `kind === "emergency"` 且备份成功后写入 `state.emergencyBootId`；
+  manual/baseline 不再改变本次启动的异常抢备状态。
+- 紧急备份成功后调用 `rotateBackups(runtime, "emergency")`（在 `createBackup` 成功之后），
+  `keepEmergency` 生效；轮换仍只处理 emergency，手动备份永不删除；轮换异常不推翻已成功备份。
+- 触发逻辑仍检查 `emergencyBootId === bootId` 与时间冷却。
+
+**已执行的检查**：静态检查（唯一 emergency 赋值、触发前检查、createBackup 先于 rotate）+
+参考节流逻辑（manual/baseline 后仍可触发；同启动第二次 emergency 被节流）。结果：PASS。
+
+**仍需**：手机失败页/真实异常信号下的抢备与轮换验收。
+
+## 6. 工作区文件误排除
+
+**修改文件**：`lib/util.js`（`DEFAULT_SKIP_DIR_NAMES`）、`lib/backup.js`（继续使用
+`skipAbsPrefixes`）。
+
+- 从全局按名称排除列表移除 `"dshm-backup"` 与 `".dshm-backup-tmp"`。
+- 真实 `backupDir` / `stateDir` / `stagingRoot` 仍通过绝对路径前缀精确排除，不会递归打包自身。
+- 用户工作区里同名的 `dshm-backup/` 项目目录（例如本项目源码）会作为正常产出文件被备份。
+
+**已执行的检查**：代码契约 + 参考遍历（`dshm-backup/src/index.js` 被收录，`node_modules` 与
+真实 backups 输出目录被排除）。结果：PASS。
+
+**仍需**：手机真实备份后检查 ZIP 内是否包含工作区同名目录。
+
+## 7. 插件清单严格缩减为「名称＋版本」
+
+**修改文件**：`lib/util.js`（`readPluginInventory`）、`lib/format.js`（`validateManifest` +
+新增 `packageNameOf`）、`lib/backup.js`（`data/plugin-inventory.json` 去掉 profileBundles）、
+文档/手机材料。
+
+- `contents.plugins.user` / `.core` 每项**只有** `{name, version}`；版本取不到写 `"unknown"`。
+- 删除 spec/kind/id/bundle/disabled/profileBundles 及插件目录信息。
+- `validateManifest` 强制 name/version 白名单，额外字段报 `plugin-extra-fields`。
+- 核心 scoped 包版本解析：`@scope/pkg[/subpath]` 取前两段包名后定位
+  `node_modules/@scope/pkg/package.json`；普通 `pkg/subpath` 取第一段。
+- README/FEASIBILITY/HANDOFF_PHONE/PHONE_ACCEPTANCE_PROMPT 同步为「仅名称+版本」。
+
+**已执行的检查**：字段白名单静态检查、参考实现（额外字段被拒）、scoped 包名解析参考用例。
+结果：PASS。
+
+**仍需**：外部真实 JS 测试读取核心清单；手机验收核对预览/报告中插件条目只有 name/version。
+
+## 8. 核心版本目录选择
+
+**修改文件**：`lib/util.js`（`pickCoreDir` → `detectCoreDir` + `coreDirSource`）、
+`lib/format.js`（`isKnownVersion` / unknown 分支）、`lib/backup.js`（manifest 记录
+`coreDirSource`）、`lib/index.js`（状态暴露 coreDirSource）。
+
+- 优先使用 Host 注入的权威环境变量 **`DSHM_CORE_DIR`**（宿主 main.js 注释明确为核心树根目录），
+  其次 `DSH_CORE_DIR`/`DSH_CORE_PATH`、`process.argv` 中实际加载的 `cores/<版本>/` 路径、
+  `host-ready.json runtime` 显式字段；**取不到即 `coreDir=null`、`coreVersion="unknown"`**。
+- 删除「cores 下字典序最后一个/唯一候选」猜测逻辑。
+- `describeVersionComparison` 中 unknown 不再与任何版本（包括 unknown）视为相同：level=unknown，
+  恢复必须二次确认。
+- 残余风险已写入 FEASIBILITY.md：若未来 DSHM 不再注入 `DSHM_CORE_DIR` 且 argv 无核心路径，
+  版本会标 unknown，恢复会走“版本不一致需确认”路径而非静默同版本。
+
+**已执行的检查**：静态检查（无字典序猜测、含权威来源与 unconfirmed、默认 coreVersion unknown）
++ 版本比较矩阵参考实现（unknown≠exact、相同完整版本=exact、不同=core-mismatch）。结果：PASS。
+
+**仍需**：手机真实插件运行时核对 `coreDirSource` 实际取值；若与手机运行核心不一致需外部复核。
+
+## 9. 备份「已校验」状态
+
+**修改文件**：`lib/util.js`（`listBackupEntries`）、`lib/index.js`（`buildBackupsSnapshot`、
+`finalizeJobState`、`/api/verify`）、`lib/client.js`（界面文案）。
+
+- 列表扫描只报告 `hasSidecar` / `sidecarSha`，`verified` 固定为 false；不再“有旁文件=已验证”。
+- `state.verified` 缓存记录**实际重新计算并核对成功**的备份/校验（备份引擎发布前后校验、
+  `/api/verify` 完整校验），键为文件路径，记录 sha256/size/verifiedAt/source。
+- 状态快照只有缓存 sha 与旁文件 sha 一致、大小一致时才显示 `verified=true` 与 verifiedAt；
+  否则显示“未校验”或“仅有旁文件（未校验）”。
+- 不新增轮询时的大文件哈希；只有备份成功或用户点击“校验选中备份”后才更新缓存。
+
+**已执行的检查**：静态契约 + 参考缓存判定（匹配才 true）。结果：PASS。
+**仍需**：手机界面核对“有旁文件但未校验”与“已校验”两种显示。
+
+## 10. 接通恢复进度
+
+**修改文件**：`lib/index.js`（`/api/restore` → `startJob` 的 progress 传入
+`executeRestore`）、`lib/restore.js`（优先 `settings.onProgress`）。
+
+- `executeRestore` 现在优先使用调用方传入的 `onProgress`，其次 runtime.onProgress；
+  各阶段更新 phase/percent/message，任务结束后由 job 状态收尾，不再长期停在“排队”。
+
+**已执行的检查**：代码契约（index 传入 onProgress；executeRestore 优先 settings.onProgress；
+阶段进度点 ≥5、含 done）。结果：PASS。
+**仍需**：手机真实恢复时观察进度条与结束后状态。
+
+## 11. 文档与手机验收材料同步
+
+**修改文件**：`README.md`、`FEASIBILITY.md`、`TEST_REPORT.md`、`HANDOFF_PHONE.md`、
+`PHONE_ACCEPTANCE_PROMPT.md`、`dshm-backup/README.md`、`dshm-backup/package.json`、本文件。
+
+- 插件版本 **0.1.1**（与已判定有缺陷的 0.1.0 区分）。
+- 文档更新：插件清单仅 name/version；ZIP 修复与外部 13/18→18/18 记录；回滚严格判定；
+  恢复前重检；fresh 规则；版本目录权威来源；verified 语义；恢复进度。
+- 手机验收改为分阶段：
+  1) 先完成**安装/加载 + 合成备份 + 完整性校验**；
+  2) 通过后由用户**另行批准**卸载/清数据与全新实例恢复；
+  3) “保持会话窗口”不再当作“正在写入”：要求在可丢弃会话中启动足够长的生成/工具写入过程，
+     并在仍有事件写入时执行备份；无法稳定制造该条件则标记“未覆盖”，不得宣称通过；
+  4) 卸载前必须把测试备份复制到 `Download/com.dshm.dshclient` **之外**或回传平板，
+     不能只复制到同一应用目录就称独立外部副本；
+  5) 所有结果在重置前回传平板。
+- 项目 ZIP 重新生成，并**包含** `test/tablet-test-results.json`；提供新的 SHA-256。
+
+**已执行的检查**：文档存在性/关键内容检查（`test_docs_fix_round`）、版本 0.1.1 检查。
+**仍需**：外部源码复审；手机按更新后的 HANDOFF/PHONE_PROMPT 分阶段验收。
+
+---
+
+## 12. 本轮测试实际执行情况
+
+### 12.1 已实际执行（平板内嵌 CPython + esprima + libzstd）
+
+- 真实 JS 解析：6 个宿主 ESM 模块 `parseModule` + `client.js` `parseScript`；
+- AST/静态检查：零 inject、禁用 API、依赖、预览零写入、回滚分支、接口一致性、
+  ZIP 管道顺序、全新实例规则、恢复前重检、回滚严格判定、异常节流、工作区排除、插件字段、
+  核心目录/unknown 版本、verified 语义、恢复进度、文档一致性；
+- 合成 fixture + Python 参考实现：会话（中文/多轮/torn/明文/空会话）、文件（中文/空格/嵌套/空/
+  无扩展名）、排除规则、凭据不泄漏、参考 ZIP 布局/篡改、路径映射、workspace 改写、fresh 矩阵、
+  预览后变化、回滚失败、节流逻辑、工作区目录遍历等。
+- 结果：见 `TEST_REPORT.md` 与 `test/tablet-test-results.json`（本轮最终 PASS/FAIL/SKIP 数以该文件为准）。
+
+### 12.2 只能静态检查（本轮未执行 JS）
+
+- `node --input-type=module --check`、`node --test dshm-backup/test/zip.test.mjs`：本机无 node CLI，
+  **未在平板执行**；
+- ZIP 二进制真实写入/读取/CRC/流式行为：未在平板执行（仅外部临时审查副本曾用真实 node 验证）；
+- HTTP 路由/鉴权/body 上限、真实文件系统权限、真实 DSHM 插件加载：未在平板执行；
+- `import.meta`/`for await`/可选 catch 绑定在 esprima 4 中的解析归一化：语义正确性需真实运行验证。
+
+### 12.3 仍需外部真实 JS 测试或手机 DSHM 验收
+
+1. 外部真实 node 执行正式修复包的 `zip.test.mjs`（目标 18/18）与全部 JS 单测；
+2. 手机安装/冷重启/UI 注入与路由可用性；
+3. 手机主动备份（含“仍在写入”的长过程）、导出到应用外、完整性校验；
+4. 手机全新实例恢复（系统默认空白工作区识别、会话真实出现、工作区文件/路径映射、插件清单）；
+5. 手机卸载/重装后备份保留；
+6. 恢复失败回滚、异常抢备、版本不一致警告等破坏性/异常场景（需用户另行批准）。
+
+### 12.4 未解决的兼容性/安全问题
+
+- `workspace.json` 运行期写回的覆盖窗口仍需“立即冷重启”规避（残余风险，见 FEASIBILITY）。
+- `coreDir` 依赖 `DSHM_CORE_DIR` 注入；拿不到时按 unknown 处理（不猜测，但会使恢复需二次确认）。
+- 系统文件选择/分享仍不可用；ZIP 仍不支持 ZIP64（<4 GiB）；`&path:` 子目录安装形式仍未实测。
+- 真实 JS 执行与真机行为必须由外部/手机验证，本报告不将其写成已通过。
+
+---
+
+# 第二轮复审退回修复（v0.1.2，2026-10-24）
+
+本轮针对 v0.1.1 复审阻断问题修复；插件版本升至 **0.1.2**。真实 JS 回归文件新增
+`test/backup-boundaries.test.mjs`、`test/restore-boundaries.test.mjs`（需外部真实 node 执行；
+平板本机无 node CLI，**未在平板执行**，不得写成已通过）。
+
+## 13. 阻断 1：回滚误递归删除既有会话目录
+
+**修改文件**：`lib/restore.js`。
+
+- 写入会话前记录 `sessionDirExistedBefore`；只有**本次新建**的 sessionDir 才进入
+  `journal.createdSessionDirs`；
+- 本次写入的日志文件始终单独进入 `journal.createdFiles`；
+- 回滚时先 strict 删除日志文件，再对本次新建 sessionDir 使用**非递归 rmdir**；
+  既有 sessionDir 不参与目录清理；
+- 目录非空/未跟踪文件时 rmdir 失败，保留目录并 `rolledBack=false`，不再使用
+  `removeTreeStrict(journal.createdSessionDirs)`；
+- 导出 `rollbackRestore` 供真实 JS 回归直接验证。
+
+**真实 JS 回归**：`test/restore-boundaries.test.mjs`
+- 既有 sessionDir + 既有无关文件：回滚后无关文件仍在、仅日志被删；
+- 本次新建目录：回滚后目录被非递归清理；
+- 新建目录中出现未跟踪文件：保留数据且 `rolledBack=false`；
+- workspace.json 恢复后重新读取比对。
+（平板未执行；外部真实 node 复跑为准。）
+
+## 14. 阻断 2：coreDir 未确认时 platform=null 导致整份备份失败
+
+**修改文件**：`lib/format.js`。
+
+- `source.platform`、`source.nodeVersion`、`coreBuiltAt`、`coreDirSource`、`appVersion`
+  允许缺失或 `null`（展示性元数据缺失不得阻断备份）；
+- `coreVersion/upstreamDshVersion = "unknown"` 仍保留，恢复时按未知版本二次确认；
+- `validateManifest` 不再因 `bad-source-platform` 拒绝合法 manifest。
+
+**真实 JS 回归**：`test/backup-boundaries.test.mjs`
+- 构造 `coreDir=null / coreDirSource=unconfirmed / platform=null` 的 runtime；
+- manual、baseline、emergency 三种备份均实际生成并通过 `verifyBackupFile`；
+- 断言 manifest 中 platform 允许缺失/null、coreVersion 为 unknown。
+
+## 15. 阻断 3：header 损坏会话阻断整份保命备份
+
+**修改文件**：`lib/format.js`、`lib/backup.js`（不完整条目的写入路径已存在）。
+
+- `complete=true` 仍严格要求有效 id/cwd/createdAt/SHA/file/size；
+- `complete=false` 允许 `cwd=null`、`createdAt=null`，但必须保留 id/file/sha/size/incompleteReason；
+- 不完整会话仍进入 ZIP 与 SHA-256 校验范围，恢复时跳过；
+- 修复后单个 header 损坏会话不会使 manual/emergency 整包失败。
+
+**真实 JS 回归**：`test/backup-boundaries.test.mjs`
+- 一个有效会话 + 一个 header 损坏会话；
+- manual 与 emergency 均成功并通过重新校验；
+- manifest 中有效会话 `complete=true`、损坏会话 `complete=false`（cwd/createdAt=null）；
+- 损坏会话原始文件进入 ZIP，恢复跳过由 restore 逻辑保证。
+
+## 16. 恢复跳过不完整会话后 registry 保留悬空 ID
+
+**修改文件**：`lib/format.js`（`rewriteWorkspaceRegistry` options + `pruneSkippedSessionReferences`）、
+`lib/restore.js`（计算 `skippedSessionIds` 并清理）。
+
+- 仅移除本次明确跳过的 complete=false 会话 ID；
+- 同时从 `workspaces[*].sessionIds`、`archivedSessionIds`、`pinnedSessionIds` 清除这些 ID；
+- **真正空会话**（只在 registry 中、无日志文件）不在 skippedSessionIds 中，必须保留；
+- 恢复报告继续列出 skipped 明细与 skippedSessionIds。
+
+**真实 JS 回归**：`test/backup-boundaries.test.mjs` 的 registry 清理用例：
+- 不完整会话被移除；真正空会话保留；归档/置顶中的对应引用同步清理。
+
+## 17. 次要修复
+
+1. **发布后复验失败清理文案**（`lib/backup.js`）：收集三处清理结果；只有全部确认清理成功才写
+   “已确认删除不完整备份”，否则在错误中列出可能残留路径与原因，不再无依据声称已删除。
+2. **HANDOFF_PHONE.md**：
+   - §5 改为“插件清单只包含名称+版本（不含 spec/id/bundle/disabled/插件目录）”；
+   - §7 改为“恢复过程不得主动改变插件；其他插件由用户根据名单自行处理，不承诺自动恢复插件名单
+     或启停状态”，不再要求“插件数量/启停状态与恢复前一致”。
+
+## 18. v0.1.2 测试与外部执行边界
+
+- **平板已执行**：esprima 解析全部 JS（含新增测试文件）、AST/静态检查、合成 fixture 与 Python
+  参考回归；结果见 `TEST_REPORT.md` 与 `test/tablet-test-results.json`。
+- **平板未执行 JS**：本机无 node CLI；以下真实 JS 测试**未在平板执行**，需外部审查环境真实运行：
+  - `node --test dshm-backup/test/zip.test.mjs`
+  - `node --test test/backup-boundaries.test.mjs`
+  - `node --test test/restore-boundaries.test.mjs`
+- **仍需外部/手机验收**：v0.1.2 正式包真实 JS 测试（ZIP 18/18 + 两份边界回归）、手机分阶段
+  安装/加载/合成备份/完整性校验/外部导出；卸载与全新恢复必须另行批准。
+- 残余风险：`workspace.json` 运行期写回需冷重启；`DSHM_CORE_DIR` 缺失时版本按 unknown；
+  系统文件选择/分享不可用；ZIP64 <4 GiB 限制；`&path:` 安装形式未实测。
+
