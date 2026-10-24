@@ -1,6 +1,6 @@
 # dshm-backup（DSHM 插件包）
 
-DSHM（HarmonyOS 端 DeepSeek Harness）备份与迁移工具（**v0.1.3**，外部源码复核退回修复后重新生成；
+DSHM（HarmonyOS 端 DeepSeek Harness）备份与迁移工具（**v0.1.4**，外部源码复核退回修复后重新生成；
 修复项见 `../FIX_REPORT.md`），纯宿主插件 + 注入式 Web UI，零第三方依赖、零静态 `inject`。项目总览、备份位置、恢复限制见上一级 `README.md`；
 只读侦查证据与手机验收清单见 `../FEASIBILITY.md` 与 `../HANDOFF_PHONE.md`。
 
