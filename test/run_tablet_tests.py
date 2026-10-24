@@ -285,7 +285,7 @@ def test_js_parse_and_contracts():
     # 导入检查（不依赖 esprima 也可做正则级检查）
     allowed_node = {
         "node:fs", "node:fs/promises", "node:path", "node:crypto", "node:url", "node:zlib",
-        "node:stream", "node:timers/promises", "node:os", "node:http", "node:assert", "node:test",
+        "node:stream", "node:stream/promises", "node:timers/promises", "node:os", "node:http", "node:assert", "node:test",
     }
     import_re = re.compile(r"""^\s*import\s+[^'"]*?from\s+['"]([^'"]+)['"]""", re.M)
     bad = []
@@ -2121,17 +2121,17 @@ def test_v012_boundaries():
 def test_v013_d1_attachment():
     util_src = read_text(os.path.join(LIB, "util.js"))
     problems = []
-    for token in ["await chmod(tmp, targetMode);", "copyFile(source, tmp)", "targetMode = settings.mode === undefined ? 0o600 : settings.mode",
-                  "await fsyncFile(tmp);"]:
+    for token in ["await pipeline(", "createReadStream(source)", "createWriteStream(tmp", "await chmod(tmp, targetMode);",
+                  "targetMode = settings.mode === undefined ? 0o600 : settings.mode", "await fsyncFile(tmp);"]:
         if token not in util_src:
             problems.append("util.js copyFileAtomic 缺少 " + token)
-    if "copyFile(source, tmp);\n    await fsyncFile(tmp);" in util_src:
-        problems.append("copyFileAtomic 仍在 chmod 之前 fsync（0o400 源会 EACCES）")
+    if "copyFile(source, tmp)" in util_src:
+        problems.append("仍使用 copyFile 系统调用（手机沙箱→用户目录 EPERM 风险）")
     if problems:
         record("D1 附件 0400 copyFileAtomic 修复（代码契约）", "fail", "；".join(problems[:5]))
     else:
         record("D1 附件 0400 copyFileAtomic 修复（代码契约）", "pass",
-               "copyFile 后显式 chmod 0o600 再 fsync；不再继承附件 0400 只读 mode")
+               "流式读写复制 + 显式 chmod 0o600 再 fsync；不使用 copyFile；不继承附件 0400")
     # 真实 JS 回归文件
     js_test = os.path.join(ROOT, "test", "attachment-copy.test.mjs")
     if not os.path.exists(js_test):
@@ -2168,12 +2168,60 @@ def test_v013_d1_attachment():
         record("backup-boundaries 无 zstd API 时明文 fallback", "pass",
                "zstd 可用时用 zstd 帧；不可用时使用产品支持的明文 v4 fixture；本机未执行")
 
+
+# ── 7. v0.1.4 手机第二阶段 D2（copyFile 沙箱→用户目录 EPERM）回归 ─────────
+
+def test_v014_d2_copyfile():
+    util_src = read_text(os.path.join(LIB, "util.js"))
+    problems = []
+    if "copyFile(" in util_src:
+        problems.append("util.js 仍存在 copyFile( 调用")
+    for token in ["from \"node:stream/promises\"", "await pipeline(", "createReadStream(source)", "createWriteStream(tmp"]:
+        if token not in util_src:
+            problems.append("util.js 缺少流式复制元素：" + token)
+    if "copyFileAtomic" not in util_src or "chmod(tmp, targetMode)" not in util_src:
+        problems.append("copyFileAtomic chmod 修复缺失")
+    if problems:
+        record("D2 沙箱→用户目录 copyfile EPERM 修复（代码契约）", "fail", "；".join(problems[:6]))
+    else:
+        record("D2 沙箱→用户目录 copyfile EPERM 修复（代码契约）", "pass",
+               "copyFileAtomic 改为 createReadStream→createWriteStream(pipeline)；保留 0600 chmod/fsync；不再调用 copyFile")
+    # 真实 JS 回归文件覆盖嵌套目标
+    js_test = os.path.join(ROOT, "test", "attachment-copy.test.mjs")
+    src = read_text(js_test) if os.path.exists(js_test) else ""
+    if "D2 回归" not in src or "dshm-backup-restored" not in src:
+        record("D2 真实 JS 回归覆盖", "fail", "attachment-copy.test.mjs 缺少沙箱→用户目录嵌套目标用例")
+    else:
+        parsed = None
+        if ESPRIMA is not None:
+            try:
+                ESPRIMA.parseModule(src)
+                parsed = True
+            except Exception as exc:  # noqa: BLE001
+                parsed = False
+                record("D2 真实 JS 回归解析", "fail", str(exc))
+        if parsed is not False:
+            record("D2 真实 JS 回归覆盖", "pass",
+                   "copyFileAtomic 嵌套目标（Download/.../dshm-backup-restored/...）+ 0400 源；本机无 node CLI，未执行")
+    # 手机第二阶段失败证据归档
+    failure_note = os.path.join(ROOT, "reports", "phone-stage2-failure-v0.1.3-20261024.md")
+    if not os.path.exists(failure_note):
+        record("手机第二阶段 D2 失败证据归档", "fail", "缺少 reports/phone-stage2-failure-v0.1.3-20261024.md")
+    else:
+        text = read_text(failure_note)
+        for token in ["EPERM", "copyfile", "dshm-backup-restored", "78%"]:
+            if token not in text:
+                record("手机第二阶段 D2 失败证据归档", "fail", "缺少 " + token)
+                break
+        else:
+            record("手机第二阶段 D2 失败证据归档", "pass", "已归档 EPERM copyfile 78% 失败现象与路径")
+
 def test_docs_fix_round():
     pkg = json.loads(read_text(os.path.join(PLUGIN, "package.json")))
-    if pkg.get("version") == "0.1.3":
-        record("插件版本 0.1.3（区分缺陷包）", "pass")
+    if pkg.get("version") == "0.1.4":
+        record("插件版本 0.1.4（区分缺陷包）", "pass")
     else:
-        record("插件版本 0.1.3（区分缺陷包）", "fail", "version=%s" % pkg.get("version"))
+        record("插件版本 0.1.4（区分缺陷包）", "fail", "version=%s" % pkg.get("version"))
     if os.path.exists(os.path.join(ROOT, "test", "tablet-test-results.json")):
         record("测试结果文件存在（可随 ZIP 交付）", "pass")
     else:
@@ -2181,12 +2229,12 @@ def test_docs_fix_round():
     required_texts = {
         "FIX_REPORT.md": ["crcTransform", "assessFreshTarget", "rollbackRestore", "executeRestore", "emergencyBootId",
                           "DEFAULT_SKIP_DIR_NAMES", "readPluginInventory", "detectCoreDir", "hasSidecar", "onProgress",
-                          "13/18", "18/18", "0.1.1", "0.1.2", "0.1.3", "sessionDirExistedBefore", "platform",
-                          "pruneSkippedSessionReferences", "真实 JS", "EACCES", "copyFileAtomic", "附件"],
-        "TEST_REPORT.md": ["13/18", "18/18", "未在平板执行", "外部", "ZIP", "0.1.2", "0.1.3", "真实 JS", "EACCES", "附件"],
-        "README.md": ["名称", "版本", "0.1.3", "附件"],
-        "FEASIBILITY.md": ["名称", "版本", "coreDir", "0.1.2", "0.1.3"],
-        "HANDOFF_PHONE.md": ["足够长的生成", "Download/com.dshm.dshclient 之外", "另行批准", "只包含名称+版本", "不承诺", "0.1.3"],
+                          "13/18", "18/18", "0.1.1", "0.1.2", "0.1.3", "0.1.4", "sessionDirExistedBefore", "platform",
+                          "pruneSkippedSessionReferences", "真实 JS", "EACCES", "EPERM", "copyFileAtomic", "pipeline", "附件"],
+        "TEST_REPORT.md": ["13/18", "18/18", "未在平板执行", "外部", "ZIP", "0.1.2", "0.1.3", "0.1.4", "真实 JS", "EACCES", "EPERM", "附件"],
+        "README.md": ["名称", "版本", "0.1.4", "附件", "EPERM"],
+        "FEASIBILITY.md": ["名称", "版本", "coreDir", "0.1.2", "0.1.3", "0.1.4"],
+        "HANDOFF_PHONE.md": ["足够长的生成", "Download/com.dshm.dshclient 之外", "另行批准", "只包含名称+版本", "不承诺", "0.1.4"],
         "PHONE_ACCEPTANCE_PROMPT.md": ["标准模式", "先安装加载", "另行批准", "不能只复制到同一应用目录"],
     }
     missing = []
@@ -2238,6 +2286,7 @@ def main():
     test_restore_progress()
     test_v012_boundaries()
     test_v013_d1_attachment()
+    test_v014_d2_copyfile()
     test_docs_fix_round()
 
     passed = sum(1 for r in RESULTS if r["status"] == "pass")
