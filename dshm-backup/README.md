@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/33900310/README.md)
 # dshm-backup（DSHM 插件包）
 
 DSHM（HarmonyOS 端 DeepSeek Harness）备份与迁移工具（**v0.1.3**，外部源码复核退回修复后重新生成；
