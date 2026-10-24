@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-10-24T15:10:43+0800",
+  "generatedAt": "2026-10-24T17:32:20+0800",
   "device": "HarmonyOS 平板 / DSHM / 内嵌 CPython",
   "jsRuntime": "unavailable (no node CLI); JS logic NOT executed",
   "esprima": true,
   "libzstd": true,
   "summary": {
-    "pass": 84,
+    "pass": 87,
     "fail": 0,
     "skip": 0
   },
@@ -28,7 +28,7 @@
     {
       "name": "JS 解析 lib/util.js（ESM parseModule）",
       "status": "pass",
-      "detail": "lines=1098"
+      "detail": "lines=1104"
     },
     {
       "name": "JS 解析 lib/format.js（ESM parseModule）",
@@ -393,7 +393,7 @@
     {
       "name": "D1 附件 0400 copyFileAtomic 修复（代码契约）",
       "status": "pass",
-      "detail": "copyFile 后显式 chmod 0o600 再 fsync；不再继承附件 0400 只读 mode"
+      "detail": "流式读写复制 + 显式 chmod 0o600 再 fsync；不使用 copyFile；不继承附件 0400"
     },
     {
       "name": "真实 JS 回归文件 attachment-copy.test.mjs",
@@ -411,7 +411,22 @@
       "detail": "zstd 可用时用 zstd 帧；不可用时使用产品支持的明文 v4 fixture；本机未执行"
     },
     {
-      "name": "插件版本 0.1.3（区分缺陷包）",
+      "name": "D2 沙箱→用户目录 copyfile EPERM 修复（代码契约）",
+      "status": "pass",
+      "detail": "copyFileAtomic 改为 createReadStream→createWriteStream(pipeline)；保留 0600 chmod/fsync；不再调用 copyFile"
+    },
+    {
+      "name": "D2 真实 JS 回归覆盖",
+      "status": "pass",
+      "detail": "copyFileAtomic 嵌套目标（Download/.../dshm-backup-restored/...）+ 0400 源；本机无 node CLI，未执行"
+    },
+    {
+      "name": "手机第二阶段 D2 失败证据归档",
+      "status": "pass",
+      "detail": "已归档 EPERM copyfile 78% 失败现象与路径"
+    },
+    {
+      "name": "插件版本 0.1.4（区分缺陷包）",
       "status": "pass",
       "detail": ""
     },
