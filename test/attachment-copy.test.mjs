@@ -124,3 +124,29 @@ test("实例内含 0o400 附件时 manual 备份成功并重新校验通过", as
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("copyFileAtomic 可写沙箱→用户可见目录的嵌套目标（D2 回归）", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dshm-backup-restore-copy-"));
+  try {
+    const source = join(root, "staging", "README");
+    await mkdir(join(root, "staging"), { recursive: true });
+    const payload = Buffer.from("workspace-file-from-staging");
+    await writeFile(source, payload);
+    await chmod(source, 0o400);
+    // 模拟恢复目标：用户可见 Download 下的重映射目录
+    const destination = join(
+      root,
+      "Download",
+      "com.dshm.dshclient",
+      "dshm-backup-restored",
+      "dshm-backup-phone-test",
+      "README",
+    );
+    await util.copyFileAtomic(source, destination);
+    assert.deepEqual(await readFile(destination), payload);
+    const dstStat = await stat(destination);
+    assert.equal(dstStat.mode & 0o777, 0o600, "目标文件应可写（0600）");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
