@@ -1,4 +1,3 @@
-[Uploading FEASIBILITY.md…]()
 # FEASIBILITY.md — DSHM 备份与迁移工具：只读侦查、适配依据与能力边界
 
 - 设备：华为 MatePad Edge 平板（主力机），HarmonyOS 7.0.0.109SP6。
