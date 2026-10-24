@@ -19,6 +19,7 @@ import {
 import {
   access,
   appendFile,
+  chmod,
   copyFile,
   lstat,
   mkdir,
@@ -1061,11 +1062,25 @@ export function toPosixRel(rootPath, absPath) {
   return rel.split(sep).join("/");
 }
 
-export async function copyFileAtomic(source, destination) {
+/**
+ * 原子复制文件。
+ *
+ * 关键：不能沿用源文件 mode。DSHM 附件对象被有意存成 0o400（只读），
+ * Node/libuv 的 copyFile 会以源 mode 创建临时文件；若随后用 "r+" 打开它做 fsync
+ * 会 EACCES（手机第一阶段实际复现）。因此 copy 后先把临时文件 chmod 为可写的目标
+ * mode（默认 0o600），再 fsync/rename；源文件 mode 不受影响。
+ *
+ * options.mode 可选，缺省 0o600（临时文件与最终文件同 mode）。
+ */
+export async function copyFileAtomic(source, destination, options) {
+  var settings = options || {};
+  var targetMode = settings.mode === undefined ? 0o600 : settings.mode;
   await ensureDir(dirname(destination));
   var tmp = destination + "." + randomUUID() + ".tmp";
   try {
     await copyFile(source, tmp);
+    // copyFile 继承源文件 mode（附件可能是 0o400）；显式 chmod 后再 fsync。
+    await chmod(tmp, targetMode);
     await fsyncFile(tmp);
     await rename(tmp, destination);
     await fsyncDir(dirname(destination));
