@@ -3,18 +3,22 @@
  * 宿主通过 webServer.tapIndex 注入：<script defer src="/dshm-backup/client.js"></script>
  * 同源 API：/dshm-backup/api/{state,backup,inspect,restore,emergency,verify,backups}
  * 约束：ES5 IIFE（var/function）、无外部资源、无 import/export/require、
- *       所有动态文本使用 textContent 输出、不读取 Cookie/本地存储、不使用内联脚本。
+ *       所有动态文本使用 textContent 输出、不读取 Cookie；localStorage 仅保存悬浮按钮位置，
+ *       不使用内联脚本。
  * 常驻轮询仅使用递归 setTimeout，且只在面板打开且存在任务时进行。
  */
 (function () {
   'use strict';
 
-  var VERSION = '0.1.0';
+  var VERSION = '0.1.8';
   var API_BASE = '/dshm-backup/api/';
   var SENTINEL = '__DSHM_BACKUP_UI__';
   var POLL_MS = 1000;
   var REQ_TIMEOUT_MS = 30000;
   var MAX_LIST = 20;
+  var FAB_POS_KEY = 'dshm-backup.fab-pos.v1';
+  var FAB_LONG_PRESS_MS = 500;
+  var FAB_MOVE_CANCEL_PX = 10;
 
   // 幂等哨兵：宿主可能重复注入，同一页面只初始化一次
   if (window[SENTINEL]) {
@@ -48,6 +52,19 @@
     emergencyError: '',
     msgTimer: null,
     dom: null
+  };
+
+  // 悬浮按钮长按拖动状态（只影响按钮位置，不涉及数据/API）
+  var fabDrag = {
+    pressing: false,
+    active: false,
+    timer: null,
+    startX: 0,
+    startY: 0,
+    offsetX: 0,
+    offsetY: 0,
+    suppressClick: false,
+    listening: false
   };
 
   var theme = { dark: false };
@@ -486,9 +503,11 @@
     '.dbk-fab,.dbk-overlay{--b-bg:#ffffff;--b-bg2:#f5f6f8;--b-fg:#1f2328;--b-fg2:#5b6472;--b-line:#d6dae0;--b-accent:#2563eb;--b-accent-fg:#ffffff;--b-ok:#15803d;--b-warn:#b45309;--b-err:#b91c1c;--b-ok-bg:#e7f7ec;--b-warn-bg:#fdf3d8;--b-err-bg:#fde8e8;--b-shadow:0 14px 36px rgba(0,0,0,.30);}',
     '@media (prefers-color-scheme: dark){.dbk-fab,.dbk-overlay{--b-bg:#1b1f24;--b-bg2:#22272e;--b-fg:#e6edf3;--b-fg2:#9aa4b1;--b-line:#3a434e;--b-accent:#3b82f6;--b-accent-fg:#ffffff;--b-ok:#4ade80;--b-warn:#fbbf24;--b-err:#f87171;--b-ok-bg:#16301f;--b-warn-bg:#3a2d14;--b-err-bg:#3c1d1d;--b-shadow:0 14px 36px rgba(0,0,0,.60);}}',
     '.dbk-fab.dbk-dark,.dbk-overlay.dbk-dark{--b-bg:#1b1f24;--b-bg2:#22272e;--b-fg:#e6edf3;--b-fg2:#9aa4b1;--b-line:#3a434e;--b-accent:#3b82f6;--b-accent-fg:#ffffff;--b-ok:#4ade80;--b-warn:#fbbf24;--b-err:#f87171;--b-ok-bg:#16301f;--b-warn-bg:#3a2d14;--b-err-bg:#3c1d1d;--b-shadow:0 14px 36px rgba(0,0,0,.60);}',
-    '.dbk-fab{position:fixed;right:16px;bottom:84px;z-index:2147483000;display:inline-flex;align-items:center;justify-content:center;padding:10px 18px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:var(--b-accent);color:var(--b-accent-fg);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;font-weight:600;line-height:1.2;letter-spacing:.02em;box-shadow:0 6px 18px rgba(37,99,235,.35);cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;}',
+    '.dbk-fab{position:fixed;right:16px;bottom:84px;z-index:2147483000;display:inline-flex;align-items:center;justify-content:center;padding:10px 18px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:var(--b-accent);color:var(--b-accent-fg);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;font-weight:600;line-height:1.2;letter-spacing:.02em;box-shadow:0 6px 18px rgba(37,99,235,.35);cursor:grab;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none;-webkit-touch-callout:none;}',
     '.dbk-fab:hover{filter:brightness(1.08);}',
     '.dbk-fab:active{transform:scale(.97);}',
+    '.dbk-fab.dbk-fab-dragging{cursor:grabbing;transform:none!important;filter:none!important;}',
+    '.dbk-fab.dbk-fab-dragging:active{transform:none!important;}',
     '.dbk-fab.dbk-fab-rescue{background:#c2410c;box-shadow:0 6px 18px rgba(194,65,12,.42);}',
     '.dbk-overlay{position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483001;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(0,0,0,.55);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.55;color:var(--b-fg);-webkit-tap-highlight-color:transparent;}',
     '.dbk-panel{display:flex;flex-direction:column;width:760px;max-width:calc(100% - 24px);max-height:90vh;background:var(--b-bg);border:1px solid var(--b-line);border-radius:14px;box-shadow:var(--b-shadow);overflow:hidden;}',
@@ -594,6 +613,236 @@
     return row;
   }
 
+  // ===== 悬浮按钮位置：长按拖动 + 本地持久化 =====
+  function fabViewportSize() {
+    var w = window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 0;
+    var h = window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 0;
+    return { w: w, h: h };
+  }
+
+  function fabClamp(left, top, width, height) {
+    var vp = fabViewportSize();
+    var margin = 4;
+    var maxLeft = Math.max(margin, vp.w - width - margin);
+    var maxTop = Math.max(margin, vp.h - height - margin);
+    return {
+      left: Math.max(margin, Math.min(left, maxLeft)),
+      top: Math.max(margin, Math.min(top, maxTop))
+    };
+  }
+
+  function fabApplyPosition(left, top) {
+    var fab = ui.dom && ui.dom.fab;
+    if (!fab) {
+      return null;
+    }
+    var width = fab.offsetWidth || 0;
+    var height = fab.offsetHeight || 0;
+    var pos = fabClamp(left, top, width, height);
+    fab.style.left = Math.round(pos.left) + 'px';
+    fab.style.top = Math.round(pos.top) + 'px';
+    fab.style.right = 'auto';
+    fab.style.bottom = 'auto';
+    return pos;
+  }
+
+  function fabReadSavedPosition() {
+    try {
+      var raw = window.localStorage && window.localStorage.getItem(FAB_POS_KEY);
+      if (!raw) {
+        return null;
+      }
+      var pos = JSON.parse(raw);
+      if (pos && isFinite(pos.left) && isFinite(pos.top)) {
+        return { left: Number(pos.left), top: Number(pos.top) };
+      }
+    } catch (e) {
+      // localStorage 不可用/内容损坏：使用默认位置
+    }
+    return null;
+  }
+
+  function fabSaveCurrentPosition() {
+    var fab = ui.dom && ui.dom.fab;
+    if (!fab || !fab.style.left) {
+      return;
+    }
+    var left = parseFloat(fab.style.left);
+    var top = parseFloat(fab.style.top);
+    if (!isFinite(left) || !isFinite(top)) {
+      return;
+    }
+    try {
+      window.localStorage.setItem(FAB_POS_KEY, JSON.stringify({
+        left: Math.round(left),
+        top: Math.round(top)
+      }));
+    } catch (e) {
+      // 持久化失败不影响拖动本身
+    }
+  }
+
+  function fabRestoreSavedPosition() {
+    var saved = fabReadSavedPosition();
+    if (saved) {
+      fabApplyPosition(saved.left, saved.top);
+    }
+  }
+
+  function fabClampCurrentPosition() {
+    var fab = ui.dom && ui.dom.fab;
+    if (!fab || !fab.style.left) {
+      return;
+    }
+    var left = parseFloat(fab.style.left);
+    var top = parseFloat(fab.style.top);
+    if (!isFinite(left) || !isFinite(top)) {
+      return;
+    }
+    fabApplyPosition(left, top);
+    fabSaveCurrentPosition();
+  }
+
+  function fabRemoveDocListeners() {
+    if (!fabDrag.listening) {
+      return;
+    }
+    document.removeEventListener('mousemove', fabOnDocMove, false);
+    document.removeEventListener('mouseup', fabOnDocUp, false);
+    document.removeEventListener('touchmove', fabOnDocMove, false);
+    document.removeEventListener('touchend', fabOnDocUp, false);
+    document.removeEventListener('touchcancel', fabOnDocUp, false);
+    fabDrag.listening = false;
+  }
+
+  function fabAddDocListeners() {
+    if (fabDrag.listening) {
+      return;
+    }
+    fabDrag.listening = true;
+    document.addEventListener('mousemove', fabOnDocMove, false);
+    document.addEventListener('mouseup', fabOnDocUp, false);
+    document.addEventListener('touchmove', fabOnDocMove, { passive: false });
+    document.addEventListener('touchend', fabOnDocUp, false);
+    document.addEventListener('touchcancel', fabOnDocUp, false);
+  }
+
+  function fabClearPress() {
+    if (fabDrag.timer) {
+      clearTimeout(fabDrag.timer);
+      fabDrag.timer = null;
+    }
+    fabDrag.pressing = false;
+    fabDrag.active = false;
+    fabRemoveDocListeners();
+    if (ui.dom && ui.dom.fab) {
+      ui.dom.fab.classList.remove('dbk-fab-dragging');
+    }
+  }
+
+  function fabBeginDrag() {
+    if (!fabDrag.pressing) {
+      return;
+    }
+    var fab = ui.dom && ui.dom.fab;
+    if (!fab) {
+      return;
+    }
+    var rect = fab.getBoundingClientRect();
+    fabApplyPosition(rect.left, rect.top);
+    fab.classList.add('dbk-fab-dragging');
+    fabDrag.active = true;
+  }
+
+  function fabOnDocMove(event) {
+    if (!fabDrag.pressing) {
+      return;
+    }
+    var point = event.touches ? event.touches[0] : event;
+    if (!point || typeof point.clientX !== 'number') {
+      return;
+    }
+    var dx = point.clientX - fabDrag.startX;
+    var dy = point.clientY - fabDrag.startY;
+    if (!fabDrag.active) {
+      // 长按计时未到就移动：视为误触/滑动，取消长按，并抑制紧随其后的 click。
+      if (Math.abs(dx) > FAB_MOVE_CANCEL_PX || Math.abs(dy) > FAB_MOVE_CANCEL_PX) {
+        fabDrag.suppressClick = true;
+        fabClearPress();
+      }
+      return;
+    }
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+    fabApplyPosition(point.clientX - fabDrag.offsetX, point.clientY - fabDrag.offsetY);
+  }
+
+  function fabOnDocUp() {
+    if (!fabDrag.pressing) {
+      return;
+    }
+    var wasActive = fabDrag.active;
+    if (wasActive) {
+      fabSaveCurrentPosition();
+    }
+    fabDrag.suppressClick = wasActive;
+    fabClearPress();
+    if (wasActive) {
+      setTimeout(function () {
+        fabDrag.suppressClick = false;
+      }, 400);
+    }
+  }
+
+  function fabOnPointerDown(event) {
+    if (event.button !== undefined && event.button !== 0) {
+      return;
+    }
+    if (event.touches && event.touches.length > 1) {
+      return;
+    }
+    var fab = ui.dom && ui.dom.fab;
+    if (!fab) {
+      return;
+    }
+    var point = event.touches ? event.touches[0] : event;
+    if (!point || typeof point.clientX !== 'number') {
+      return;
+    }
+    var rect = fab.getBoundingClientRect();
+    fabDrag.suppressClick = false;
+    fabDrag.pressing = true;
+    fabDrag.active = false;
+    fabDrag.startX = point.clientX;
+    fabDrag.startY = point.clientY;
+    fabDrag.offsetX = point.clientX - rect.left;
+    fabDrag.offsetY = point.clientY - rect.top;
+    if (fabDrag.timer) {
+      clearTimeout(fabDrag.timer);
+    }
+    fabDrag.timer = setTimeout(function () {
+      try {
+        fabBeginDrag();
+      } catch (e) {
+        fabClearPress();
+      }
+    }, FAB_LONG_PRESS_MS);
+    fabAddDocListeners();
+  }
+
+  function setupFabDrag(fab) {
+    if (!fab) {
+      return;
+    }
+    fab.addEventListener('mousedown', guard(fabOnPointerDown), false);
+    fab.addEventListener('touchstart', guard(fabOnPointerDown), { passive: true });
+    fab.addEventListener('contextmenu', function (event) {
+      event.preventDefault();
+    }, false);
+    window.addEventListener('resize', guard(fabClampCurrentPosition), false);
+  }
+
   function buildDom() {
     var dom = {};
     ui.dom = dom;
@@ -605,9 +854,10 @@
     // 悬浮按钮：正常页「备份」，失败页「备份工具（救援）」
     dom.fab = el('button', 'dbk-fab' + (ui.rescue ? ' dbk-fab-rescue' : ''), ui.rescue ? '备份工具（救援）' : '备份');
     dom.fab.type = 'button';
-    dom.fab.title = ui.rescue ? '插件加载失败页：打开备份救援面板' : '打开 DSHM 备份与迁移面板';
-    dom.fab.setAttribute('aria-label', ui.rescue ? '备份工具（救援）' : '备份');
+    dom.fab.title = (ui.rescue ? '插件加载失败页：打开备份救援面板' : '打开 DSHM 备份与迁移面板') + '；长按可拖动位置';
+    dom.fab.setAttribute('aria-label', (ui.rescue ? '备份工具（救援）' : '备份') + '；长按可拖动位置');
     dom.fab.addEventListener('click', guard(onFabClick), false);
+    setupFabDrag(dom.fab);
 
     dom.overlay = el('div', 'dbk-overlay');
     dom.overlay.style.display = 'none';
@@ -671,7 +921,7 @@
     dom.verifyBtn.addEventListener('click', guard(verifySelected), false);
     append(dom.actions, dom.backupBtn, dom.refreshBtn, dom.verifyBtn);
     dom.bodyMain.appendChild(dom.actions);
-    dom.actionHint = el('div', 'dbk-hint', '点击备份行可选中后校验；「恢复」需先预览。');
+    dom.actionHint = el('div', 'dbk-hint', '点击备份行可选中后校验；「恢复」需先预览。长按右下角「备份」按钮可拖动位置。');
     dom.bodyMain.appendChild(dom.actionHint);
 
     // 任务进度
@@ -1931,7 +2181,15 @@
     showMainView();
   }
 
-  function onFabClick() {
+  function onFabClick(event) {
+    if (fabDrag.suppressClick) {
+      fabDrag.suppressClick = false;
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
     openPanel();
   }
 
@@ -2019,8 +2277,8 @@
     }
     ui.dom.fab.className = 'dbk-fab dbk-fab-rescue';
     setText(ui.dom.fab, '备份工具（救援）');
-    ui.dom.fab.title = '插件加载失败页：打开备份救援面板';
-    ui.dom.fab.setAttribute('aria-label', '备份工具（救援）');
+    ui.dom.fab.title = '插件加载失败页：打开备份救援面板；长按可拖动位置';
+    ui.dom.fab.setAttribute('aria-label', '备份工具（救援）；长按可拖动位置');
     ensureAttached();
     detectDark();
     renderRescue();
@@ -2071,6 +2329,7 @@
       buildDom();
       document.body.appendChild(ui.dom.fab);
       document.body.appendChild(ui.dom.overlay);
+      fabRestoreSavedPosition();
       ui.mounted = true;
       detectDark();
       window[SENTINEL] = {
