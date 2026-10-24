@@ -1,4 +1,3 @@
-[Uploading lead-recon.md…]()
 # Lead 侦查笔记（工作稿，后续并入 FEASIBILITY.md）
 
 时间：2026-10-24（Asia/Shanghai）。环境：HarmonyOS 7.0.0.109SP6 平板，DSHM com.dshm.dshclient。
