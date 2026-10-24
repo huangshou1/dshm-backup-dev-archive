@@ -1,4 +1,3 @@
-[FIX_REPORT.md](https://github.com/user-attachments/files/33900299/FIX_REPORT.md)
 # FIX_REPORT.md — 外部源码复核退回修复报告（插件 v0.1.1）
 
 - 修复对象：`dshm-backup-dev/`（插件 `dshm-backup` 0.1.0 → **0.1.1**）。
