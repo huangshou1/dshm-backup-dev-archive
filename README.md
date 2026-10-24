@@ -1,4 +1,3 @@
-[Uploading README.md…]()
 # dshm-backup — DSHM 备份与迁移工具（平板端交付）
 
 > ⚠️ 本目录是**平板端开发交付**：只读侦查 + 适配 DSHM 的源码 + 合成测试 + 手机验收交接。
