@@ -433,3 +433,111 @@ canRestore/conflicts 检查）。结果：PASS。
   部分目标数据（DShM 数据与 `dshm-backup-restored` 目录），并由用户再次明确批准清洗/重装；
 - 卸载保留与全新恢复尚未通过；异常测试/回滚演练仍另行批准。
 
+---
+
+# v0.1.5 — 手机第二阶段 D3 修复（2026-10-24）
+
+## 23. D3（阻断第二阶段）：目标用户目录禁止 chmod（EPERM）
+
+**手机实测（v0.1.4，第二阶段，18:01）**：
+- 恢复仍到 78% 失败，但操作名从 v0.1.3 的 `copyfile` 变为 **`chmod`**：
+  `EPERM: operation not permitted, chmod`
+  → `Download/com.dshm.dshclient/dshm-backup-restored/dshm-backup-phone-test/README.<uuid>.tmp`。
+- 说明 v0.1.4 的流式复制已经成功（临时文件已创建并写入），失败在复制后的
+  `chmod(tmp, 0o600)`；OHOS 允许普通 read/write，但禁止对用户可见 Download 下的文件 chmod。
+- 证据：`reports/phone-stage2-failure-v0.1.4-20261024.md` 与
+  `reports/stage2-failure-v0.1.4/` 截图（sha256 `57cac1d761aa347e…`）。
+
+**修改**（`dshm-backup/lib/util.js`）：
+- `copyFileAtomic` **移除目标 chmod**；目标权限仅由
+  `createWriteStream(tmp, { flags:"wx", mode: targetMode })` 的 mode 决定（默认 0o600）。
+- `fsyncFile` 由 `open(filePath, "r+")` 改为 `open(filePath, "r")`，只读 fd 也可 fsync，
+  避免系统收紧权限后写打开失败。
+- D1 的 0400 源文件、D2 的流式复制均保留；不产生新的 chmod 依赖。
+
+**回归**：
+- 静态契约：`util.js` 不得出现 `chmod(`；`fsyncFile` 不得使用 `"r+"`；
+  `copyFileAtomic` 必须使用 createWriteStream + mode。
+- 真实 JS `test/attachment-copy.test.mjs` 保留 0400 源复制与沙箱→用户目录嵌套目标用例；
+  平板未执行（无 node CLI）。
+- v0.1.5 仍需外部真实 node 测试与手机第二阶段重跑；重跑前必须清理上次失败残留并由用户
+  再次确认清洗/重装，不得使用异常抢备。
+
+## 24. 手机第二阶段当前结论（截至 v0.1.5 交付）
+
+- v0.1.3：预览正常，恢复 78% `copyfile` EPERM（D2）。
+- v0.1.4：预览/流式写入通过到同一阶段，`chmod` EPERM（D3）。
+- v0.1.5：修复 D3，待手机重跑；第二阶段尚未通过。
+- 卸载保留、全新恢复、真实回滚/异常测试均未通过；不得宣称通过。
+
+---
+
+# v0.1.6 — v0.1.5 复查与恢复写入加固（2026-10-24）
+
+## 25. 复查 v0.1.5：chmod 已移除，但仍有用户目录元数据操作风险
+
+复查 `copyFileAtomic` 在 v0.1.5 的完整步骤：
+`createReadStream → createWriteStream(tmp) → fsyncFile(tmp, "r") → rename(tmp, target) → fsyncDir`。
+
+- chmod 已移除（D3 修复正确）；
+- 但 `fsync/rename/fsyncDir` 仍是针对**用户可见 Download** 的元数据/目录操作。手机只证明了
+  “普通 write 成功”，没有证明这些操作在该目录一定可用；若再次被 OHOS 拒绝，恢复会第三次失败。
+- 恢复流程中用户目录写入点只有“工作区文件”一处（会话/附件/registry 都写 DSH_HOME）；
+  因此针对该处做最小化加固即可，不需要改备份/校验路径。
+
+**加固**（v0.1.6）：
+- 新增 `util.copyFileDirect(source, destination, options)`：只做
+  `createWriteStream(destination, { flags:"wx", mode:0o600 })` 的普通流式写入最终路径；
+  **不创建临时文件、不 chmod、不 fsync、不 rename**；失败时删除部分目标并抛出。
+- `restore.js` 的工作区文件复制改用 `copyFileDirect`，并在写入**之前**把目标路径加入
+  `journal.createdFiles`，失败时由 rollback 清理部分文件；
+- 其他复制（备份 staging、附件恢复等 DSH_HOME 内部）继续用 `copyFileAtomic`，保留原子性。
+- 真实 JS 回归 `test/attachment-copy.test.mjs` 新增 `copyFileDirect` 用户目录嵌套目标用例；
+  静态契约要求 restore 使用 `copyFileDirect` 且先记录回滚。
+
+## 26. v0.1.6 的边界
+
+- 仍未在手机验证；第二阶段未通过。需要外部真实 node 测试 + 手机重跑（重跑前再次清理残留并
+  由用户明确确认第二次清洗/重装）。
+- 直接写入不提供原子性；但目标已确认不存在，失败由回滚清理，属于为受限文件策略做的取舍，
+  已在恢复报告中保留失败路径处理。
+
+---
+
+# v0.1.7 — 修复 copyFileDirect 误删既有文件（2026-10-24）
+
+## 27. 阻断缺陷：EEXIST 时无条件删除既有目标，且 restore 过早登记 journal
+
+**外部复审实测（v0.1.6）**：
+- `copyFileDirect` 使用 `createWriteStream(destination, {flags:"wx"})`；目标已存在时写入以
+  `EEXIST` 失败；catch 却无条件 `rm(destination, {force:true})`，导致**既有目标文件被删除**。
+- 复现结果：`{"errorCode":"EEXIST","preexistingFileSurvived":false,"content":null}`。
+- `restore.js` 还在调用前无条件 `journal.createdFiles.push(targetFile)`；若预检后目标被其他进程
+  创建，`copyFileDirect` EEXIST 后外层 rollback 会按 journal 删除该既有文件。
+- 现有 91/91 测试未覆盖“目标已存在”失败路径，因此不能排除该缺陷。
+
+**修复（v0.1.7）**：
+1. `copyFileDirect` 改为先 `open(destination, "wx", targetMode)` **排他创建**；
+   - 只有 open 成功才视为本次调用创建的文件；
+   - EEXIST/open 失败：不删除 destination、不调用 onCreated、不登记 journal；
+2. 创建成功后、开始流式复制前，调用 `options.onCreated(destination)` 完成 journal 登记；
+3. `restore.js` 不再在调用前 push；只在 onCreated 回调中登记；
+4. 复制失败时只清理由本次创建的文件；若清理失败，onCreated 已登记的路径保留，外层
+   `rollbackRestore` 继续严格清理并如实报告 `rolledBack=false`；
+5. 文件句柄/流在成功、读失败、写失败路径关闭；保持 `"wx"` 拒绝覆盖语义；
+6. `copyFileAtomic`、备份与附件恢复路径未改动。
+
+**真实 JS 回归（新增 `test/direct-write.test.mjs`，外部 node 执行；平板未执行）**：
+- 目标已存在：抛 EEXIST；既有内容与 SHA-256 不变；onCreated 不触发；
+- 模拟预检后目标被其他过程创建并进入 `rollbackRestore`：journal 为空，既有文件保留；
+- 目标不存在、源读取失败：登记后只清理本次创建的文件，journal 保留跟踪；
+- 正常直接写入：onCreated 一次、内容一致、mode 0600；
+- 清理失败：`rollbackRestore` 保留路径并报告 `rolledBack=false`（既有 restore-boundaries 用例）。
+- 原 0400/D2/ZIP/备份边界测试保持通过（外部真实执行）。
+
+## 28. 交付与边界
+
+- 版本 0.1.7；需外部真实 JS 测试（ZIP、backup-boundaries、restore-boundaries、
+  attachment-copy、direct-write）与手机第二阶段重跑。
+- 手机第二阶段重跑前仍需清理上次残留并由用户明确确认；异常测试仍未批准。
+
