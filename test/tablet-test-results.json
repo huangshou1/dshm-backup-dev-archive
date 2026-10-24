@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-10-24T18:17:45+0800",
+  "generatedAt": "2026-10-24T19:40:17+0800",
   "device": "HarmonyOS 平板 / DSHM / 内嵌 CPython",
   "jsRuntime": "unavailable (no node CLI); JS logic NOT executed",
   "esprima": true,
   "libzstd": true,
   "summary": {
-    "pass": 91,
+    "pass": 92,
     "fail": 0,
     "skip": 0
   },
@@ -43,7 +43,7 @@
     {
       "name": "JS 解析 lib/client.js（ES5 parseScript）",
       "status": "pass",
-      "detail": "lines=2102"
+      "detail": "lines=2361"
     },
     {
       "name": "client.js ES5/注入式约束",
@@ -446,7 +446,12 @@
       "detail": "EEXIST 不删除/不登记、预检冲突 rollback 保留、源读取失败清理、正常写入、清理失败上报；本机未执行"
     },
     {
-      "name": "插件版本 0.1.7（区分缺陷包）",
+      "name": "长按拖动悬浮按钮（代码契约）",
+      "status": "pass",
+      "detail": "长按/移动阈值/视口夹取/localStorage 持久化/点击抑制/救援按钮可拖动；ES5"
+    },
+    {
+      "name": "插件版本 0.1.8（区分缺陷包）",
       "status": "pass",
       "detail": ""
     },
