@@ -732,8 +732,14 @@ export async function executeRestore(runtime, internal, options) {
           throw util.errorWithCode("RESTORE_FILE_CONFLICT", "目标文件已存在且内容不同：" + targetFile, 409);
         }
         await ensureDirTracked(dirname(targetFile), journal.createdDirs);
-        await util.copyFileAtomic(join(stagingDir, fileDecl.entry), targetFile);
-        journal.createdFiles.push(targetFile);
+        // 用户可见目录禁止 copyfile/chmod（及可能的 fsync/rename）；目标已确认不存在，
+        // 直接流式写入最终路径。只有 copyFileDirect 排他创建成功后，才通过 onCreated
+        // 登记 journal；EEXIST/既有文件绝不登记、绝不删除。
+        await util.copyFileDirect(join(stagingDir, fileDecl.entry), targetFile, {
+          onCreated: function (createdPath) {
+            journal.createdFiles.push(createdPath);
+          },
+        });
         restoredWorkspaceFiles += 1;
       }
     }
