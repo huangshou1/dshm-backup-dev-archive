@@ -19,7 +19,6 @@ import {
 import {
   access,
   appendFile,
-  chmod,
   lstat,
   mkdir,
   open,
@@ -305,7 +304,8 @@ export function sha256File(filePath) {
 // ── 原子写 / 稳定读 ───────────────────────────────────────────────────────
 
 export async function fsyncFile(filePath) {
-  var handle = await open(filePath, "r+");
+  // 只读打开即可 fsync；避免目标文件被系统收紧权限后 "r+" 打开失败。
+  var handle = await open(filePath, "r");
   try {
     await handle.sync();
   } finally {
@@ -1063,15 +1063,15 @@ export function toPosixRel(rootPath, absPath) {
 }
 
 /**
- * 原子复制文件（流式读写，**不使用 fs.copyFile**）。
+ * 原子复制文件（流式读写，**不使用 fs.copyFile，也不对目标 chmod**）。
  *
- * 手机第二阶段实测：恢复工作区文件时，从应用沙箱 staging 复制到用户可见
- * Download/.../dshm-backup-restored 路径，`copyFile` 返回 EPERM（OPNOTSUPP/沙箱策略），
- * 即使 mkdir 与普通 write 已成功。因此本函数改用 createReadStream → createWriteStream
- * 的普通 read/write 路径，再 chmod/fsync/rename，避免依赖 copyfile 系统调用。
+ * 手机实测演进：
+ * - v0.1.3：copyFile 在沙箱→用户可见 Download 方向 EPERM（D2）；
+ * - v0.1.4：改为流式复制，但复制后对目标临时文件 chmod 仍被 OHOS 拒绝（EPERM，D3）。
  *
- * 另外不能沿用源文件 mode：DSHM 附件可能为 0o400（只读），故写入时显式 mode 0o600，
- * 再 chmod 确保（手机第一阶段 D1 已复现 0400 继承导致的 fsync EACCES）。
+ * 因此目标文件权限只通过 createWriteStream 的 mode 参数设置（默认 0o600），
+ * 复制后不再 chmod；fsync 以只读 fd 完成，避免权限收紧后的写打开失败。
+ * 源文件 0o400（附件）只需读权限，不受影响。
  *
  * options.mode 可选，缺省 0o600（临时文件与最终文件同 mode）。
  */
@@ -1081,12 +1081,12 @@ export async function copyFileAtomic(source, destination, options) {
   await ensureDir(dirname(destination));
   var tmp = destination + "." + randomUUID() + ".tmp";
   try {
-    // 普通 read/write 流：避开 OHOS 对 copyfile 系统调用的拒绝。
+    // 普通 read/write 流：避开 OHOS 对 copyfile 系统调用的拒绝；
+    // 目标 mode 由 createWriteStream 创建时设置，不做 chmod。
     await pipeline(
       createReadStream(source),
       createWriteStream(tmp, { flags: "wx", mode: targetMode })
     );
-    await chmod(tmp, targetMode);
     await fsyncFile(tmp);
     await rename(tmp, destination);
     await fsyncDir(dirname(destination));
@@ -1097,6 +1097,70 @@ export async function copyFileAtomic(source, destination, options) {
       // ignore
     }
     throw error;
+  }
+}
+
+/**
+ * 直接流式复制到最终目标（**不建临时文件，不 chmod，不 fsync，不 rename**）。
+ *
+ * 仅用于“目标已确认不存在”且位于 OHOS 用户可见目录的场景（恢复工作区文件）。
+ * 该目录已实测允许普通 read/write，但禁止 copyfile/chmod 等元数据操作；
+ * 为避免 v0.1.3/0.1.4 的 copyfile、chmod 以及潜在 fsync/rename 限制，直接用
+ * createReadStream → createWriteStream 写最终路径。
+ *
+ * 所有权规则（v0.1.7 阻断修复）：
+ * - 必须先用 open(destination, "wx") 排他创建成功，才算“本次调用创建的文件”；
+ * - 只有创建成功后，才调用 options.onCreated(destination) 让调用方登记回滚 journal；
+ * - 目标已存在（EEXIST）或 open 失败时：不调用 onCreated、不删除 destination，
+ *   既有文件原样保留；
+ * - 创建成功后的读取/写入失败：只清理本次创建的文件；若清理失败则保留 journal 登记，
+ *   由外层回滚继续严格清理并如实报告。
+ */
+export async function copyFileDirect(source, destination, options) {
+  var settings = options || {};
+  var targetMode = settings.mode === undefined ? 0o600 : settings.mode;
+  await ensureDir(dirname(destination));
+  var handle;
+  try {
+    handle = await open(destination, "wx", targetMode);
+  } catch (error) {
+    // EEXIST 等：目标不是本次创建的，绝不删除、绝不登记。
+    throw error;
+  }
+  var stream = null;
+  try {
+    // 创建成功后才登记；必须在开始流式复制之前完成。
+    if (typeof settings.onCreated === "function") {
+      await settings.onCreated(destination);
+    }
+    stream = handle.createWriteStream({ autoClose: true });
+    await pipeline(createReadStream(source), stream);
+  } catch (error) {
+    if (stream) {
+      try {
+        stream.destroy();
+      } catch (_) {
+        // ignore
+      }
+    }
+    try {
+      await handle.close();
+    } catch (_) {
+      // ignore
+    }
+    // 只清理本次排他创建的文件；清理失败不吞掉 journal（onCreated 已登记）。
+    try {
+      await rm(destination, { force: true });
+    } catch (_) {
+      // 保留文件；外层回滚会依据 journal 继续清理并如实报告
+    }
+    throw error;
+  }
+  // 成功路径：autoClose 通常已关闭句柄；再 close 一次并忽略已关闭错误。
+  try {
+    await handle.close();
+  } catch (_) {
+    // ignore
   }
 }
 
