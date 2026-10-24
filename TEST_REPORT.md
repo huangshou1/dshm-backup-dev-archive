@@ -1,4 +1,4 @@
-# TEST_REPORT.md — 平板端测试、静态检查与外部复核修复记录（插件 v0.1.4）
+# TEST_REPORT.md — 平板端测试、静态检查与外部复核修复记录（插件 v0.1.7）
 
 - 设备：华为 MatePad Edge 平板（HarmonyOS 7.0.0.109SP6），DSHM `com.dshm.dshclient`，
   平板实测核心 `0.2.1-rc.2+dshm.73`。
@@ -34,7 +34,7 @@
 
 ## 2. 本轮已实际执行并通过的检查（以 `tablet-test-results.json` 为准）
 
-本轮检查覆盖原有 50 项 + v0.1.1 回归 25 项 + v0.1.2 复审边界 5 项 + v0.1.3 D1 回归 4 项 + v0.1.4 D2 回归 3 项，最终运行 **PASS=87 FAIL=0 SKIP=0**。
+本轮检查覆盖原有 50 项 + v0.1.1 回归 25 项 + v0.1.2 复审边界 5 项 + v0.1.3 D1 回归 4 项 + v0.1.4 D2 回归 3 项 + v0.1.5 D3 回归 2 项 + v0.1.6 D4 加固 2 项，最终运行 **PASS=91 FAIL=0 SKIP=0**。
 
 ### 2.1 真实 JS 解析与语言约束
 - `lib/index.js`、`backup.js`、`restore.js`、`util.js`、`format.js`、`zip.js` 全部通过
@@ -270,4 +270,113 @@
 - 异常测试/回滚演练另行批准；
 - 已知限制：appVersion null、安装通道仅 npm/GitHub、workspace.json 冷重启窗口、
   coreDir unknown 兜底、无系统文件选择/分享、ZIP64<4GiB、`&path:` 安装形式未平板实测。
+
+---
+
+## 12. v0.1.5：手机第二阶段 D3（目标 chmod EPERM）修复后的平板自测
+
+### 12.1 手机实际结果（来自手机截图，非平板测试）
+
+- v0.1.4 恢复在 **78%** 失败，错误为 `EPERM: operation not permitted, chmod`，
+  目标是 `Download/.../dshm-backup-restored/.../README.<uuid>.tmp`；
+- 说明流式复制已成功，失败在复制后的目标 chmod；证据归档
+  `reports/phone-stage2-failure-v0.1.4-20261024.md` 与截图；
+- 本版修复：移除目标 chmod，目标权限仅由 createWriteStream mode 设置；fsync 改为只读打开。
+
+### 12.2 平板已执行
+
+- esprima 解析全部 JS 与 JS 测试文件；
+- 静态契约：`util.js` 无 `chmod(`；`fsyncFile` 使用 `open(filePath, "r")`；
+  `copyFileAtomic` 使用 createReadStream/createWriteStream(mode targetMode)/pipeline；
+- D1/D2/D3 静态回归与证据归档检查；最终计数以 `test/tablet-test-results.json` 为准；
+- **平板未执行真实 JS**（无 node CLI）。
+
+### 12.3 真实 JS 测试（需外部 node 执行）
+
+| 文件 | 覆盖 | 平板状态 |
+|---|---|---|
+| `dshm-backup/test/zip.test.mjs` | ZIP 18/18 基线 | 待 v0.1.5 复跑 |
+| `test/backup-boundaries.test.mjs` | coreDir/platform、损坏 header、registry | 未在平板执行 |
+| `test/restore-boundaries.test.mjs` | 回滚边界 | 未在平板执行 |
+| `test/attachment-copy.test.mjs` | 0400 附件、沙箱→用户目录嵌套目标（无 chmod 复制） | 未在平板执行 |
+
+### 12.4 未解决/待验收
+
+- 外部真实 node 执行 v0.1.5 四份 JS 测试；
+- 手机第二阶段重跑：需再次清理上次部分目标数据（用户明确批准），卸载/清数据/重装后
+  安装 v0.1.5，预览全新实例（6/1/6/4）并恢复；
+- 异常测试/回滚演练、失败页、断电等仍未批准；
+- 已知限制不变：appVersion null、安装通道、workspace.json 冷重启窗口等。
+
+---
+
+## 13. v0.1.6：复查后的恢复写入加固
+
+### 13.1 复查结论
+
+- v0.1.5 已移除 chmod，但用户可见目录仍会经历 fsync/rename/fsyncDir；手机只验证了普通 write；
+- 为避免第三次失败，v0.1.6 将恢复工作区文件改为 `copyFileDirect`：直接流式写最终路径，
+  不使用临时文件/chmod/fsync/rename；写入前记录到回滚 journal。
+
+### 13.2 平板已执行
+
+- esprima 解析全部 JS/测试文件；
+- 静态检查：`copyFileDirect` 存在、restore 使用它、写入前记录回滚、util 无 chmod/copyFile；
+- D1/D2/D3/D4 静态回归与失败证据归档检查；计数以 `tablet-test-results.json` 为准；
+- **平板未执行真实 JS**（无 node CLI）。
+
+### 13.3 真实 JS 测试（需外部 node 执行）
+
+| 文件 | 覆盖 | 平板状态 |
+|---|---|---|
+| `dshm-backup/test/zip.test.mjs` | ZIP 18/18 基线 | 待 v0.1.6 复跑 |
+| `test/backup-boundaries.test.mjs` | coreDir/platform、损坏 header、registry | 未在平板执行 |
+| `test/restore-boundaries.test.mjs` | 回滚边界 | 未在平板执行 |
+| `test/attachment-copy.test.mjs` | 0400 附件、copyFileAtomic、copyFileDirect 用户目录目标 | 未在平板执行 |
+
+### 13.4 未解决/待验收
+
+- 外部真实 node 执行 v0.1.6 四份 JS 测试；
+- 手机第二阶段重跑：清理上次部分目标/DSHM 数据（用户明确批准），安装 v0.1.6，
+  预览全新实例（6/1/6/4）并恢复；
+- 第二阶段尚未通过；异常/回滚演练仍未批准。
+
+---
+
+## 14. v0.1.7：copyFileDirect 所有权修复
+
+### 14.1 外部复审阻断
+
+- v0.1.6 `copyFileDirect` 在目标已存在（EEXIST）时仍无条件 `rm(destination)`，会删除既有文件；
+- `restore.js` 调用前无条件 journal.push，预检后冲突时 rollback 会删除既有文件；
+- 外部复现：`{"errorCode":"EEXIST","preexistingFileSurvived":false,"content":null}`。
+
+### 14.2 修复
+
+- `open(destination, "wx")` 成功后才拥有文件；EEXIST/open 失败不删除、不登记；
+- 创建成功后、复制前通过 `onCreated` 登记 journal；
+- restore 不再调用前 push；复制失败只清理本次创建文件，清理失败保留 journal 由外层回滚；
+- 保持 `"wx"`，不改 `copyFileAtomic`/备份/附件路径。
+
+### 14.3 新增真实 JS 测试（外部 node 执行；平板未执行）
+
+`test/direct-write.test.mjs`：
+- EEXIST：既有内容/SHA 不变、onCreated 不触发；
+- 预检后冲突 + rollbackRestore：既有文件保留、journal 为空；
+- 源读取失败：只清理本次创建文件、journal 保留跟踪；
+- 正常直接写入成功；
+- 清理失败：rolledBack=false。
+
+### 14.4 平板执行
+
+- esprima 解析全部 JS 与全部测试文件（含 direct-write）；
+- 静态契约：open(wx) 后 onCreated、restore 使用 onCreated、无调用前 push；
+- 原 91 项 + 本轮检查以 `tablet-test-results.json` 为准；**平板未执行真实 JS**。
+
+### 14.5 待验收
+
+- 外部真实 node 执行五份 JS 测试（ZIP、backup-boundaries、restore-boundaries、
+  attachment-copy、direct-write）；
+- 手机第二阶段重跑（清理残留 + 用户确认）之前不得宣称恢复通过；
+- 异常测试/回滚演练仍未批准。
 
