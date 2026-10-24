@@ -1,6 +1,6 @@
 {
   "name": "dshm-backup",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "DSHM（HarmonyOS DeepSeek Harness）备份与迁移工具：主动备份、健康基线备份、异常抢备，以及全新同版本实例的对话/工作区恢复。纯宿主插件，零第三方依赖。",
   "private": false,
   "type": "module",
