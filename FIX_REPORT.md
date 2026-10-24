@@ -541,3 +541,27 @@ canRestore/conflicts 检查）。结果：PASS。
   attachment-copy、direct-write）与手机第二阶段重跑。
 - 手机第二阶段重跑前仍需清理上次残留并由用户明确确认；异常测试仍未批准。
 
+---
+
+# v0.1.8 — 悬浮备份按钮支持长按拖动（2026-10-24）
+
+## 29. 需求：备份按钮易误触，可调整位置
+
+**需求**：右下角「备份」按钮容易误触；改成类似桌面图标长按拖动，可移动到页面其他位置。
+
+**实现**（`lib/client.js`，ES5 IIFE，无新增依赖）：
+- 长按约 500ms 进入拖动；移动阈值 10px，超过则取消长按视为误触/滑动；
+- 拖动中限制在视口内（四边 4px 边距），松手保存到 `localStorage` 键
+  `dshm-backup.fab-pos.v1`；页面挂载/窗口 resize 时恢复并重新夹取；
+- 普通轻点仍打开面板；长按/拖动后抑制紧随的 click，避免误开面板；
+- 长按触发前若移动超过阈值，取消长按并抑制 click；
+- 触摸使用 `touchstart/touchmove/touchend`，桌面使用 `mousedown/mousemove/mouseup`；
+  拖动时 `touch-action:none`、禁用 `-webkit-touch-callout`，并阻止 contextmenu；
+- 失败页救援按钮同样可拖动；按钮 title/aria 与面板提示文案注明“长按可拖动位置”；
+- 不影响备份/恢复/API；不读取 Cookie，localStorage 仅保存按钮坐标。
+
+**测试**：
+- 平板 esprima 解析 ES5 与静态契约检查（事件/阈值/持久化键/拖动类名）；
+- 真实手机 UI 拖动需后续手机验收（本轮未安装/未操作手机）；
+- 真实 JS 测试（Node）不覆盖 DOM 拖动，需额外浏览器/手机验证。
+
