@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-10-24T17:32:20+0800",
+  "generatedAt": "2026-10-24T18:17:45+0800",
   "device": "HarmonyOS 平板 / DSHM / 内嵌 CPython",
   "jsRuntime": "unavailable (no node CLI); JS logic NOT executed",
   "esprima": true,
   "libzstd": true,
   "summary": {
-    "pass": 87,
+    "pass": 91,
     "fail": 0,
     "skip": 0
   },
@@ -23,12 +23,12 @@
     {
       "name": "JS 解析 lib/restore.js（ESM parseModule）",
       "status": "pass",
-      "detail": "lines=882"
+      "detail": "lines=888"
     },
     {
       "name": "JS 解析 lib/util.js（ESM parseModule）",
       "status": "pass",
-      "detail": "lines=1104"
+      "detail": "lines=1168"
     },
     {
       "name": "JS 解析 lib/format.js（ESM parseModule）",
@@ -393,7 +393,7 @@
     {
       "name": "D1 附件 0400 copyFileAtomic 修复（代码契约）",
       "status": "pass",
-      "detail": "流式读写复制 + 显式 chmod 0o600 再 fsync；不使用 copyFile；不继承附件 0400"
+      "detail": "流式读写复制 + createWriteStream mode 0600 + 只读 fsync；不使用 copyFile；不对目标 chmod"
     },
     {
       "name": "真实 JS 回归文件 attachment-copy.test.mjs",
@@ -413,7 +413,7 @@
     {
       "name": "D2 沙箱→用户目录 copyfile EPERM 修复（代码契约）",
       "status": "pass",
-      "detail": "copyFileAtomic 改为 createReadStream→createWriteStream(pipeline)；保留 0600 chmod/fsync；不再调用 copyFile"
+      "detail": "copyFileAtomic 改为 createReadStream→createWriteStream(pipeline)；mode 0600；不再调用 copyFile"
     },
     {
       "name": "D2 真实 JS 回归覆盖",
@@ -426,7 +426,27 @@
       "detail": "已归档 EPERM copyfile 78% 失败现象与路径"
     },
     {
-      "name": "插件版本 0.1.4（区分缺陷包）",
+      "name": "D3 目标 chmod EPERM 修复（代码契约）",
+      "status": "pass",
+      "detail": "copyFileAtomic 不再 chmod 目标；目标权限仅由 createWriteStream mode 设置；fsync 以只读打开"
+    },
+    {
+      "name": "手机第二阶段 D3 失败证据归档",
+      "status": "pass",
+      "detail": "已归档 v0.1.4 chmod EPERM 失败现象"
+    },
+    {
+      "name": "D4 直接写入所有权/回滚登记（代码契约）",
+      "status": "pass",
+      "detail": "open(wx) 成功后才标记/onCreated；EEXIST 不删除不登记；restore 仅通过 onCreated 登记"
+    },
+    {
+      "name": "D4 真实 JS 回归覆盖",
+      "status": "pass",
+      "detail": "EEXIST 不删除/不登记、预检冲突 rollback 保留、源读取失败清理、正常写入、清理失败上报；本机未执行"
+    },
+    {
+      "name": "插件版本 0.1.7（区分缺陷包）",
       "status": "pass",
       "detail": ""
     },
