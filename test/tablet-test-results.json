@@ -1,0 +1,414 @@
+{
+  "generatedAt": "2026-10-24T12:58:36+0800",
+  "device": "HarmonyOS 平板 / DSHM / 内嵌 CPython",
+  "jsRuntime": "unavailable (no node CLI); JS logic NOT executed",
+  "esprima": true,
+  "libzstd": true,
+  "summary": {
+    "pass": 80,
+    "fail": 0,
+    "skip": 0
+  },
+  "results": [
+    {
+      "name": "JS 解析 lib/index.js（ESM parseModule）",
+      "status": "pass",
+      "detail": "lines=999"
+    },
+    {
+      "name": "JS 解析 lib/backup.js（ESM parseModule）",
+      "status": "pass",
+      "detail": "lines=756"
+    },
+    {
+      "name": "JS 解析 lib/restore.js（ESM parseModule）",
+      "status": "pass",
+      "detail": "lines=882"
+    },
+    {
+      "name": "JS 解析 lib/util.js（ESM parseModule）",
+      "status": "pass",
+      "detail": "lines=1083"
+    },
+    {
+      "name": "JS 解析 lib/format.js（ESM parseModule）",
+      "status": "pass",
+      "detail": "lines=873"
+    },
+    {
+      "name": "JS 解析 lib/zip.js（ESM parseModule）",
+      "status": "pass",
+      "detail": "lines=1886"
+    },
+    {
+      "name": "JS 解析 lib/client.js（ES5 parseScript）",
+      "status": "pass",
+      "detail": "lines=2102"
+    },
+    {
+      "name": "client.js ES5/注入式约束",
+      "status": "pass",
+      "detail": "无 import/箭头/模板/let/const/class/async/require/setInterval"
+    },
+    {
+      "name": "client.js 关键契约字符串",
+      "status": "pass",
+      "detail": "哨兵/API 前缀存在"
+    },
+    {
+      "name": "ESM/ES5 解析汇总",
+      "status": "pass",
+      "detail": "6 个宿主模块 + 注入脚本全部解析通过"
+    },
+    {
+      "name": "依赖检查（只用 node: 内置 + 本地相对文件）",
+      "status": "pass",
+      "detail": "无第三方依赖、无裸包导入"
+    },
+    {
+      "name": "禁用 API 扫描",
+      "status": "pass",
+      "detail": "无 child_process/WASM/Worker/eval"
+    },
+    {
+      "name": "零静态 inject",
+      "status": "pass",
+      "detail": "无静态 inject；webServer 通过 ctx.get 判空 + internal/service 重试"
+    },
+    {
+      "name": "预览阶段零写入（AST）",
+      "status": "pass",
+      "detail": "inspectBackup 函数体无写/解压调用"
+    },
+    {
+      "name": "恢复失败回滚分支（AST）",
+      "status": "pass",
+      "detail": "executeRestore 的 try/catch 分支调用 rollbackRestore"
+    },
+    {
+      "name": "宿主/客户端接口一致性",
+      "status": "pass",
+      "detail": "state/backup/inspect/restore/emergency/verify 均存在"
+    },
+    {
+      "name": "词法平衡检查（分隔符/字符串/注释）",
+      "status": "pass",
+      "detail": "7 个文件全部平衡"
+    },
+    {
+      "name": "合成 fixture 构造",
+      "status": "pass",
+      "detail": "工作区/会话/附件/凭据/插件清单/workspace.json 已生成"
+    },
+    {
+      "name": "会话 fixture 扫描（中文标题/多轮/损坏/明文）",
+      "status": "pass",
+      "detail": "4 个会话；1 个 torn 尾部、1 个明文、header 与目录 id 一致"
+    },
+    {
+      "name": "空会话 fixture（仅注册表引用、无日志文件）",
+      "status": "pass",
+      "detail": "空会话 id 保留在 workspace.json，无日志文件"
+    },
+    {
+      "name": "参考 manifest 构造与校验",
+      "status": "pass",
+      "detail": "sessions=4 workspaces=3 files=5 attachments=1"
+    },
+    {
+      "name": "中文/空格/嵌套/空文件/无扩展名文件 fixture",
+      "status": "pass",
+      "detail": "5 类文件名均进入工作区文件清单"
+    },
+    {
+      "name": "排除规则（node_modules/.git）",
+      "status": "pass",
+      "detail": "node_modules 与 .git 未进入清单"
+    },
+    {
+      "name": "凭据不进入清单/报告",
+      "status": "pass",
+      "detail": "SECRET-TOKEN/sk-SECRET 等未出现在 manifest"
+    },
+    {
+      "name": "参考 ZIP 布局（manifest + payload）",
+      "status": "pass",
+      "detail": "11 个 payload 条目 sha256 一致"
+    },
+    {
+      "name": "参考 ZIP 条目名安全",
+      "status": "pass",
+      "detail": "全部条目通过路径安全规则（含中文/空格/嵌套）"
+    },
+    {
+      "name": "备份包篡改拒绝（参考实现）",
+      "status": "pass",
+      "detail": "篡改后 ZIP CRC 或清单 SHA 校验失败"
+    },
+    {
+      "name": "projectKey 与真实会话目录名一致",
+      "status": "pass",
+      "detail": "--storage-Users-currentUser-Download-com.dshm.dshclient--"
+    },
+    {
+      "name": "ZIP 条目路径安全规则（参考实现）",
+      "status": "pass",
+      "detail": "路径穿越/盘符/反斜杠/空段/中文均按预期"
+    },
+    {
+      "name": "恢复路径映射（重映射 + 唯一性 + 不越界）",
+      "status": "pass",
+      "detail": "2 条映射，1 keep + 1 remap，目标唯一且在允许目录"
+    },
+    {
+      "name": "workspace.json 改写规则（参考实现）",
+      "status": "pass",
+      "detail": "path 映射/清 pendingMutation/initialized=true"
+    },
+    {
+      "name": "全新实例判定（参考实现）",
+      "status": "pass",
+      "detail": "无可迁移数据=全新；已有会话=非全新（默认拒绝覆盖）"
+    },
+    {
+      "name": "备份文件名唯一（参考实现）",
+      "status": "pass",
+      "detail": "100/100 唯一"
+    },
+    {
+      "name": "备份中途失败不留正式文件（发布协议参考实现）",
+      "status": "pass",
+      "detail": "校验失败删除 .writing，正式文件不存在"
+    },
+    {
+      "name": "重复备份不覆盖旧文件（代码契约）",
+      "status": "pass",
+      "detail": "createBackup 对已存在目标抛 BACKUP_EXISTS"
+    },
+    {
+      "name": "自动轮转不删除手动备份（代码契约）",
+      "status": "pass",
+      "detail": "rotateBackups 仅处理 baseline/emergency，按 kind 过滤"
+    },
+    {
+      "name": "新基线校验成功后才轮转（代码契约）",
+      "status": "pass",
+      "detail": "createBackup → then(rotateBackups)"
+    },
+    {
+      "name": "导入失败回滚（参考实现）",
+      "status": "pass",
+      "detail": "删除本次创建项并恢复 workspace.json 原文"
+    },
+    {
+      "name": "导入失败回滚（代码契约）",
+      "status": "pass",
+      "detail": "rollbackRestore 处理创建文件/会话目录/registry 快照"
+    },
+    {
+      "name": "版本比较规则（代码契约）",
+      "status": "pass",
+      "detail": "核心版本/会话格式/工作区格式分开比较，不合并"
+    },
+    {
+      "name": "同版本判定为完整版本字符串相等",
+      "status": "pass",
+      "detail": "严格比较 coreVersion 全串"
+    },
+    {
+      "name": "manifest 版本维度齐全",
+      "status": "pass",
+      "detail": "核心/上游/运行时/格式/工具版本分字段记录"
+    },
+    {
+      "name": "package.json 包名/入口/声明",
+      "status": "pass",
+      "detail": "name/type/main/exports/dsh.bundle.patch/零依赖/无 engines"
+    },
+    {
+      "name": "cordis.patch.yml 注册行 id 与包名一致",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "name": "DSHM UI 注入链路（tapIndex + prefix 路由）",
+      "status": "pass",
+      "detail": "tapIndex 注入 + /dshm-backup prefix 路由 + internal/service 重试"
+    },
+    {
+      "name": "插件清单字段（仅 name/version）",
+      "status": "pass",
+      "detail": "user/core 均只有 name/version；scoped 包名经 packageNameOf"
+    },
+    {
+      "name": "备份导出位置（用户可见 Download 工作区）",
+      "status": "pass",
+      "detail": "默认 <workspace>/dshm-backup/backups，位于用户可见目录"
+    },
+    {
+      "name": "交付文档存在性",
+      "status": "pass",
+      "detail": "README/FEASIBILITY/TEST_REPORT/HANDOFF_PHONE/PHONE_ACCEPTANCE_PROMPT"
+    },
+    {
+      "name": "文档无 PC 必需步骤",
+      "status": "pass",
+      "detail": "未出现以 PC/桌面 DSH/ADB 为必要条件的表述（含手机提示词的禁止性表述）"
+    },
+    {
+      "name": "手机验收提示词关键约束",
+      "status": "pass",
+      "detail": "标准模式/先复述后执行/不自动卸载/不装 brickpack/回传"
+    },
+    {
+      "name": "ZIP 写管线顺序（CRC/原始大小必须在 deflate 之前）",
+      "status": "pass",
+      "detail": "streams=[source, crcTransform, (deflate)]；中央目录/data descriptor 使用原始 CRC/大小"
+    },
+    {
+      "name": "全新实例判定矩阵（参考实现）",
+      "status": "pass",
+      "detail": "12 个用例：仅系统默认空白工作区=全新；其余均拒绝"
+    },
+    {
+      "name": "全新实例判定规则（代码契约）",
+      "status": "pass",
+      "detail": "仅识别 defaultWorkspaceId + Host 默认路径 + 空 sessionIds 的系统默认工作区"
+    },
+    {
+      "name": "预览后目标变化回归（参考实现）",
+      "status": "pass",
+      "detail": "预览后新建会话 → 不再全新、指纹变化，恢复必须拒绝"
+    },
+    {
+      "name": "执行恢复前重新检查目标（代码契约）",
+      "status": "pass",
+      "detail": "executeRestore 在 staging/写目标前重读目标、比较指纹、重算映射、复查冲突；服务端强制检查 canRestore/conflicts"
+    },
+    {
+      "name": "回滚严格判定（不吞删除错误）",
+      "status": "pass",
+      "detail": "文件/会话目录/空目录/registry 均严格删除并复查；任一失败 rolledBack=false，保留 registry 快照"
+    },
+    {
+      "name": "回滚失败必须报告 rolledBack=false（参考实现）",
+      "status": "pass",
+      "detail": "非空目录删除失败被记录，不会假报成功"
+    },
+    {
+      "name": "异常抢备节流只由 emergency 更新（代码契约）",
+      "status": "pass",
+      "detail": "manual/baseline 不改变 emergency 本次启动状态"
+    },
+    {
+      "name": "紧急备份校验成功后才轮换（代码契约）",
+      "status": "pass",
+      "detail": "createBackup → then(rotateBackups(emergency))"
+    },
+    {
+      "name": "异常抢备节流参考逻辑",
+      "status": "pass",
+      "detail": "manual/baseline 后仍可触发；同启动第二次 emergency 被节流"
+    },
+    {
+      "name": "工作区 dshm-backup/ 目录不被误排除（代码契约）",
+      "status": "pass",
+      "detail": "按名称排除已移除；仅按绝对路径排除真实 backup/state/staging"
+    },
+    {
+      "name": "工作区 dshm-backup/ 与真实 backups 的遍历区分（参考实现）",
+      "status": "pass",
+      "detail": "仅收 dshm-backup/src/index.js；node_modules 与真实 backups 输出目录被排除"
+    },
+    {
+      "name": "核心 scoped 包名解析（参考实现）",
+      "status": "pass",
+      "detail": "@scope/pkg[/sub] 先取前两段；带子路径的普通模块名先取包名"
+    },
+    {
+      "name": "清单校验拒绝插件额外字段（代码契约）",
+      "status": "pass",
+      "detail": "清单校验只允许 name/version，多余字段报错"
+    },
+    {
+      "name": "插件清单额外字段被拒绝（参考实现）",
+      "status": "pass",
+      "detail": "spec 字段触发 plugin-extra-fields"
+    },
+    {
+      "name": "运行核心目录判定（不猜版本）",
+      "status": "pass",
+      "detail": "权威来源 DSHM_CORE_DIR/argv；取不到标 unconfirmed，不再按目录名猜"
+    },
+    {
+      "name": "unknown 版本不参与同版本判定（代码契约）",
+      "status": "pass",
+      "detail": "isKnownVersion + unknown 分支"
+    },
+    {
+      "name": "版本比较矩阵（参考实现）",
+      "status": "pass",
+      "detail": "unknown≠exact；相同完整版本=exact；不同=core-mismatch"
+    },
+    {
+      "name": "“已校验”状态语义（代码契约）",
+      "status": "pass",
+      "detail": "仅有旁文件→未校验；只有实际复算并核对成功才 verified=true"
+    },
+    {
+      "name": "“已校验”缓存判定（参考实现）",
+      "status": "pass",
+      "detail": "缓存 SHA/大小与旁文件一致才 true；否则未校验"
+    },
+    {
+      "name": "恢复进度接通（代码契约）",
+      "status": "pass",
+      "detail": "startJob progress → executeRestore(settings.onProgress) → 各阶段进度更新"
+    },
+    {
+      "name": "v0.1.2 阻断修复代码契约",
+      "status": "pass",
+      "detail": "会话目录仅删新日志/非递归 rmdir；来源元数据允许 null；incomplete 会话保留；registry 跳过清理；清理结果如实上报"
+    },
+    {
+      "name": "真实 JS 回归文件 backup-boundaries.test.mjs",
+      "status": "pass",
+      "detail": "存在；esprima 解析通过；本机无 node CLI，未执行（需外部真实 node 运行）"
+    },
+    {
+      "name": "真实 JS 回归文件 restore-boundaries.test.mjs",
+      "status": "pass",
+      "detail": "存在；esprima 解析通过；本机无 node CLI，未执行（需外部真实 node 运行）"
+    },
+    {
+      "name": "真实 JS 回归覆盖本轮边界",
+      "status": "pass",
+      "detail": "coreDir=null/platform=null 三类备份、损坏 header、既有 sessionDir+无关文件、未跟踪文件回滚失败"
+    },
+    {
+      "name": "HANDOFF 插件一致性表述修正",
+      "status": "pass",
+      "detail": "不承诺自动恢复插件名单/启停；恢复不得主动改变插件"
+    },
+    {
+      "name": "插件版本 0.1.2（区分缺陷包）",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "name": "测试结果文件存在（可随 ZIP 交付）",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "name": "文档与修复后的字段/行为一致",
+      "status": "pass",
+      "detail": "FIX_REPORT/TEST_REPORT/README/FEASIBILITY/HANDOFF/PHONE_PROMPT 已同步"
+    },
+    {
+      "name": "TEST_REPORT 不再声称无产品级失败",
+      "status": "pass",
+      "detail": "记录外部真实 ZIP 测试 13/18 失败与修复后 18/18"
+    }
+  ]
+}
