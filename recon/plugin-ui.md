@@ -1,4 +1,3 @@
-[Uploading plugin-ui.md…]()
 # DSHM 插件机制 / UI 注入 / 生命周期侦查报告
 
 > 范围：只读侦查 DSHM core `0.2.1-rc.2+dshm.73`（HarmonyOS 平板）。侦查时间受限，**未确认项已在 D 节末尾单列**；所有结论都对应本机真实文件:行号。
