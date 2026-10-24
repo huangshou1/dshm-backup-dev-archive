@@ -20,7 +20,6 @@ import {
   access,
   appendFile,
   chmod,
-  copyFile,
   lstat,
   mkdir,
   open,
@@ -34,6 +33,7 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1063,12 +1063,15 @@ export function toPosixRel(rootPath, absPath) {
 }
 
 /**
- * 原子复制文件。
+ * 原子复制文件（流式读写，**不使用 fs.copyFile**）。
  *
- * 关键：不能沿用源文件 mode。DSHM 附件对象被有意存成 0o400（只读），
- * Node/libuv 的 copyFile 会以源 mode 创建临时文件；若随后用 "r+" 打开它做 fsync
- * 会 EACCES（手机第一阶段实际复现）。因此 copy 后先把临时文件 chmod 为可写的目标
- * mode（默认 0o600），再 fsync/rename；源文件 mode 不受影响。
+ * 手机第二阶段实测：恢复工作区文件时，从应用沙箱 staging 复制到用户可见
+ * Download/.../dshm-backup-restored 路径，`copyFile` 返回 EPERM（OPNOTSUPP/沙箱策略），
+ * 即使 mkdir 与普通 write 已成功。因此本函数改用 createReadStream → createWriteStream
+ * 的普通 read/write 路径，再 chmod/fsync/rename，避免依赖 copyfile 系统调用。
+ *
+ * 另外不能沿用源文件 mode：DSHM 附件可能为 0o400（只读），故写入时显式 mode 0o600，
+ * 再 chmod 确保（手机第一阶段 D1 已复现 0400 继承导致的 fsync EACCES）。
  *
  * options.mode 可选，缺省 0o600（临时文件与最终文件同 mode）。
  */
@@ -1078,8 +1081,11 @@ export async function copyFileAtomic(source, destination, options) {
   await ensureDir(dirname(destination));
   var tmp = destination + "." + randomUUID() + ".tmp";
   try {
-    await copyFile(source, tmp);
-    // copyFile 继承源文件 mode（附件可能是 0o400）；显式 chmod 后再 fsync。
+    // 普通 read/write 流：避开 OHOS 对 copyfile 系统调用的拒绝。
+    await pipeline(
+      createReadStream(source),
+      createWriteStream(tmp, { flags: "wx", mode: targetMode })
+    );
     await chmod(tmp, targetMode);
     await fsyncFile(tmp);
     await rename(tmp, destination);
