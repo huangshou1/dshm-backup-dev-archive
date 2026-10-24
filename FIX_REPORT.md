@@ -395,3 +395,41 @@ canRestore/conflicts 检查）。结果：PASS。
 - 手机第一阶段需在外部复跑通过后重新执行；卸载保留、全新实例恢复、真实恢复/回滚与异常测试
   仍须分别获得明确批准；不得在平板主力实例安装/启用/停用本插件。
 
+---
+
+# v0.1.4 — 手机第二阶段 D2 修复（2026-10-24）
+
+## 22. D2（阻断第二阶段）：沙箱→用户可见目录的 copyFile 被 OHOS 拒绝（EPERM）
+
+**手机实测（v0.1.3，第二阶段）**：
+- 预览正常：6 会话 / 1 工作区 / 6 文件 / 4 附件；目标全新；源工作区目录被手机侧删除后，
+  映射按设计重映射到 `Download/com.dshm.dshclient/dshm-backup-restored/dshm-backup-phone-test`。
+- 恢复在 **78%** 失败：
+  `EPERM: operation not permitted, copyfile`
+  `…/dsh-home/dshm-backup/staging/restore-*/data/workspace-files/ws-0001/README`
+  → `…/Download/com.dshm.dshclient/dshm-backup-restored/…/README.<uuid>.tmp`。
+- 同一用户目录内此前 `mkdir` 与普通 write（备份 zip）可成功，附件 0400（D1）已修复；
+  因此定位为 `copyFile` 系统调用/沙箱策略在“应用沙箱 → 用户可见目录”方向被拒，
+  不是目录权限或 mode 问题。手机 UI 提示“恢复未完成，目标数据可能处于未完成状态”。
+
+**修改**（`dshm-backup/lib/util.js`）：
+- `copyFileAtomic` 不再调用 `copyFile`；改为
+  `createReadStream(source) → createWriteStream(tmp, {flags:"wx", mode:0o600})` 的
+  `pipeline` 普通读写复制，随后 `chmod(tmp, targetMode)` / `fsyncFile` / `rename`。
+- 保留 D1 的 0o400 源文件读取兼容与目标 0600 可写；`options.mode` 仍可覆盖。
+- 备份 staging 复制（用户目录→沙箱）与恢复复制（沙箱→用户目录）统一走流式路径，避免方向差异。
+
+**真实 JS 回归**（`test/attachment-copy.test.mjs` 新增，外部 node 执行；平板未执行）：
+- “沙箱→用户可见目录嵌套目标”用例：0400 源文件复制到
+  `Download/com.dshm.dshclient/dshm-backup-restored/.../README`，断言内容与目标 0600。
+- 静态契约：`util.js` 不得再出现 `copyFile(`，必须使用 pipeline/流式复制。
+
+**第二阶段失败证据归档**：
+- `reports/phone-stage2-failure-v0.1.3-20261024.md`；
+- 截图 `reports/stage2-failure-v0.1.3/`（预览计数/映射、警告与 manifest、78% EPERM、操作卡）。
+
+**后续要求**：
+- v0.1.4 需外部真实 node 测试与手机第二阶段重跑；重跑前必须确认/清理上次失败留下的
+  部分目标数据（DShM 数据与 `dshm-backup-restored` 目录），并由用户再次明确批准清洗/重装；
+- 卸载保留与全新恢复尚未通过；异常测试/回滚演练仍另行批准。
+
