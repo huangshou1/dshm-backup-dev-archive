@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-10-24T12:58:36+0800",
+  "generatedAt": "2026-10-24T15:10:43+0800",
   "device": "HarmonyOS 平板 / DSHM / 内嵌 CPython",
   "jsRuntime": "unavailable (no node CLI); JS logic NOT executed",
   "esprima": true,
   "libzstd": true,
   "summary": {
-    "pass": 80,
+    "pass": 84,
     "fail": 0,
     "skip": 0
   },
@@ -28,7 +28,7 @@
     {
       "name": "JS 解析 lib/util.js（ESM parseModule）",
       "status": "pass",
-      "detail": "lines=1083"
+      "detail": "lines=1098"
     },
     {
       "name": "JS 解析 lib/format.js（ESM parseModule）",
@@ -391,7 +391,27 @@
       "detail": "不承诺自动恢复插件名单/启停；恢复不得主动改变插件"
     },
     {
-      "name": "插件版本 0.1.2（区分缺陷包）",
+      "name": "D1 附件 0400 copyFileAtomic 修复（代码契约）",
+      "status": "pass",
+      "detail": "copyFile 后显式 chmod 0o600 再 fsync；不再继承附件 0400 只读 mode"
+    },
+    {
+      "name": "真实 JS 回归文件 attachment-copy.test.mjs",
+      "status": "pass",
+      "detail": "存在；esprima 解析通过；覆盖 0o400 源文件复制与含 0400 附件实例备份；本机无 node CLI，未执行"
+    },
+    {
+      "name": "D1 真实 JS 回归覆盖",
+      "status": "pass",
+      "detail": "0o400 源复制、含附件实例备份、源 mode 不变/目标 0600"
+    },
+    {
+      "name": "backup-boundaries 无 zstd API 时明文 fallback",
+      "status": "pass",
+      "detail": "zstd 可用时用 zstd 帧；不可用时使用产品支持的明文 v4 fixture；本机未执行"
+    },
+    {
+      "name": "插件版本 0.1.3（区分缺陷包）",
       "status": "pass",
       "detail": ""
     },
