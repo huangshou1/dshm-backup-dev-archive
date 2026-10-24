@@ -2115,12 +2115,65 @@ def test_v012_boundaries():
     else:
         record("HANDOFF 插件一致性表述修正", "pass", "不承诺自动恢复插件名单/启停；恢复不得主动改变插件")
 
+
+# ── 6. v0.1.3 手机第一阶段 D1 修复回归 ─────────────────────────────────────
+
+def test_v013_d1_attachment():
+    util_src = read_text(os.path.join(LIB, "util.js"))
+    problems = []
+    for token in ["await chmod(tmp, targetMode);", "copyFile(source, tmp)", "targetMode = settings.mode === undefined ? 0o600 : settings.mode",
+                  "await fsyncFile(tmp);"]:
+        if token not in util_src:
+            problems.append("util.js copyFileAtomic 缺少 " + token)
+    if "copyFile(source, tmp);\n    await fsyncFile(tmp);" in util_src:
+        problems.append("copyFileAtomic 仍在 chmod 之前 fsync（0o400 源会 EACCES）")
+    if problems:
+        record("D1 附件 0400 copyFileAtomic 修复（代码契约）", "fail", "；".join(problems[:5]))
+    else:
+        record("D1 附件 0400 copyFileAtomic 修复（代码契约）", "pass",
+               "copyFile 后显式 chmod 0o600 再 fsync；不再继承附件 0400 只读 mode")
+    # 真实 JS 回归文件
+    js_test = os.path.join(ROOT, "test", "attachment-copy.test.mjs")
+    if not os.path.exists(js_test):
+        record("真实 JS 回归文件 attachment-copy.test.mjs", "fail", "文件不存在")
+    else:
+        src = read_text(js_test)
+        parsed = None
+        if ESPRIMA is not None:
+            try:
+                ESPRIMA.parseModule(src)
+                parsed = True
+            except Exception as exc:  # noqa: BLE001
+                parsed = False
+                record("真实 JS 回归解析 attachment-copy.test.mjs", "fail", str(exc))
+        if parsed is not False:
+            record("真实 JS 回归文件 attachment-copy.test.mjs", "pass",
+                   "存在；%s；覆盖 0o400 源文件复制与含 0400 附件实例备份；本机无 node CLI，未执行" %
+                   ("esprima 解析通过" if parsed else "未解析"))
+        checks = [
+            ("覆盖 0o400 源文件 copyFileAtomic", "0o400" in src and "copyFileAtomic" in src),
+            ("覆盖含 0400 附件实例 createBackup", "createBackup" in src and "attachments" in src),
+            ("断言源 mode 不变、目标 0600", "srcStat.mode & 0o777" in src and "dstStat.mode & 0o777" in src),
+        ]
+        bad = [name for name, ok in checks if not ok]
+        if bad:
+            record("D1 真实 JS 回归覆盖", "fail", "缺少：" + "；".join(bad))
+        else:
+            record("D1 真实 JS 回归覆盖", "pass", "0o400 源复制、含附件实例备份、源 mode 不变/目标 0600")
+    # backup-boundaries 的 zstd 可移植性
+    fb = read_text(os.path.join(ROOT, "test", "backup-boundaries.test.mjs"))
+    if "HAS_ZSTD" not in fb or "session.v4.jsonl" not in fb:
+        record("backup-boundaries 无 zstd API 时明文 fallback", "fail", "未实现 HAS_ZSTD 明文 fixture 分支")
+    else:
+        record("backup-boundaries 无 zstd API 时明文 fallback", "pass",
+               "zstd 可用时用 zstd 帧；不可用时使用产品支持的明文 v4 fixture；本机未执行")
+
 def test_docs_fix_round():
     pkg = json.loads(read_text(os.path.join(PLUGIN, "package.json")))
-    if pkg.get("version") == "0.1.2":
-        record("插件版本 0.1.2（区分缺陷包）", "pass")
+    if pkg.get("version") == "0.1.3":
+        record("插件版本 0.1.3（区分缺陷包）", "pass")
     else:
-        record("插件版本 0.1.2（区分缺陷包）", "fail", "version=%s" % pkg.get("version"))
+        record("插件版本 0.1.3（区分缺陷包）", "fail", "version=%s" % pkg.get("version"))
     if os.path.exists(os.path.join(ROOT, "test", "tablet-test-results.json")):
         record("测试结果文件存在（可随 ZIP 交付）", "pass")
     else:
@@ -2128,12 +2181,12 @@ def test_docs_fix_round():
     required_texts = {
         "FIX_REPORT.md": ["crcTransform", "assessFreshTarget", "rollbackRestore", "executeRestore", "emergencyBootId",
                           "DEFAULT_SKIP_DIR_NAMES", "readPluginInventory", "detectCoreDir", "hasSidecar", "onProgress",
-                          "13/18", "18/18", "0.1.1", "0.1.2", "sessionDirExistedBefore", "platform",
-                          "pruneSkippedSessionReferences", "真实 JS"],
-        "TEST_REPORT.md": ["13/18", "18/18", "未在平板执行", "外部", "ZIP", "0.1.2", "真实 JS"],
-        "README.md": ["名称", "版本", "0.1.2"],
-        "FEASIBILITY.md": ["名称", "版本", "coreDir", "0.1.2"],
-        "HANDOFF_PHONE.md": ["足够长的生成", "Download/com.dshm.dshclient 之外", "另行批准", "只包含名称+版本", "不承诺"],
+                          "13/18", "18/18", "0.1.1", "0.1.2", "0.1.3", "sessionDirExistedBefore", "platform",
+                          "pruneSkippedSessionReferences", "真实 JS", "EACCES", "copyFileAtomic", "附件"],
+        "TEST_REPORT.md": ["13/18", "18/18", "未在平板执行", "外部", "ZIP", "0.1.2", "0.1.3", "真实 JS", "EACCES", "附件"],
+        "README.md": ["名称", "版本", "0.1.3", "附件"],
+        "FEASIBILITY.md": ["名称", "版本", "coreDir", "0.1.2", "0.1.3"],
+        "HANDOFF_PHONE.md": ["足够长的生成", "Download/com.dshm.dshclient 之外", "另行批准", "只包含名称+版本", "不承诺", "0.1.3"],
         "PHONE_ACCEPTANCE_PROMPT.md": ["标准模式", "先安装加载", "另行批准", "不能只复制到同一应用目录"],
     }
     missing = []
@@ -2184,6 +2237,7 @@ def main():
     test_verified_status()
     test_restore_progress()
     test_v012_boundaries()
+    test_v013_d1_attachment()
     test_docs_fix_round()
 
     passed = sum(1 for r in RESULTS if r["status"] == "pass")
