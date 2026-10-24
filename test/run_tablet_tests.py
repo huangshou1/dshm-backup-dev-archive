@@ -2306,12 +2306,34 @@ def test_v017_direct_ownership():
                 record("D4 真实 JS 回归覆盖", "pass",
                        "EEXIST 不删除/不登记、预检冲突 rollback 保留、源读取失败清理、正常写入、清理失败上报；本机未执行")
 
+
+# ── 10. v0.1.8 悬浮按钮长按拖动 ─────────────────────────────────────────────
+
+def test_v018_fab_drag():
+    src = read_text(os.path.join(LIB, "client.js"))
+    problems = []
+    for token in ["FAB_POS_KEY", "FAB_LONG_PRESS_MS", "FAB_MOVE_CANCEL_PX", "fabBeginDrag",
+                  "fabOnDocMove", "fabOnDocUp", "fabApplyPosition", "fabRestoreSavedPosition",
+                  "localStorage", "touchstart", "touchmove", "touchend", "mousedown", "mouseup",
+                  "dbk-fab-dragging", "长按可拖动位置", "suppressClick"]:
+        if token not in src:
+            problems.append("缺少 " + token)
+    if "VERSION = '0.1.8'" not in src:
+        problems.append("client VERSION 未升到 0.1.8")
+    if "copFileAtomic" in src:
+        problems.append("不应出现错误拼写")
+    if problems:
+        record("长按拖动悬浮按钮（代码契约）", "fail", "；".join(problems[:8]))
+    else:
+        record("长按拖动悬浮按钮（代码契约）", "pass",
+               "长按/移动阈值/视口夹取/localStorage 持久化/点击抑制/救援按钮可拖动；ES5")
+
 def test_docs_fix_round():
     pkg = json.loads(read_text(os.path.join(PLUGIN, "package.json")))
-    if pkg.get("version") == "0.1.7":
-        record("插件版本 0.1.7（区分缺陷包）", "pass")
+    if pkg.get("version") == "0.1.8":
+        record("插件版本 0.1.8（区分缺陷包）", "pass")
     else:
-        record("插件版本 0.1.7（区分缺陷包）", "fail", "version=%s" % pkg.get("version"))
+        record("插件版本 0.1.8（区分缺陷包）", "fail", "version=%s" % pkg.get("version"))
     if os.path.exists(os.path.join(ROOT, "test", "tablet-test-results.json")):
         record("测试结果文件存在（可随 ZIP 交付）", "pass")
     else:
@@ -2319,14 +2341,14 @@ def test_docs_fix_round():
     required_texts = {
         "FIX_REPORT.md": ["crcTransform", "assessFreshTarget", "rollbackRestore", "executeRestore", "emergencyBootId",
                           "DEFAULT_SKIP_DIR_NAMES", "readPluginInventory", "detectCoreDir", "hasSidecar", "onProgress",
-                          "13/18", "18/18", "0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7",
+                          "13/18", "18/18", "0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7", "0.1.8",
                           "sessionDirExistedBefore", "platform", "pruneSkippedSessionReferences", "真实 JS",
                           "EACCES", "EPERM", "EEXIST", "copyFileAtomic", "copyFileDirect", "onCreated",
-                          "pipeline", "chmod", "附件"],
-        "TEST_REPORT.md": ["13/18", "18/18", "未在平板执行", "外部", "ZIP", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7", "真实 JS", "EACCES", "EPERM", "EEXIST", "chmod", "附件"],
-        "README.md": ["名称", "版本", "0.1.7", "附件", "EPERM"],
-        "FEASIBILITY.md": ["名称", "版本", "coreDir", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7"],
-        "HANDOFF_PHONE.md": ["足够长的生成", "Download/com.dshm.dshclient 之外", "另行批准", "只包含名称+版本", "不承诺", "0.1.7"],
+                          "pipeline", "chmod", "附件", "长按拖动"],
+        "TEST_REPORT.md": ["13/18", "18/18", "未在平板执行", "外部", "ZIP", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7", "0.1.8", "真实 JS", "EACCES", "EPERM", "EEXIST", "chmod", "附件", "长按拖动"],
+        "README.md": ["名称", "版本", "0.1.8", "附件", "EPERM", "长按拖动"],
+        "FEASIBILITY.md": ["名称", "版本", "coreDir", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7", "0.1.8"],
+        "HANDOFF_PHONE.md": ["足够长的生成", "Download/com.dshm.dshclient 之外", "另行批准", "只包含名称+版本", "不承诺", "0.1.8"],
         "PHONE_ACCEPTANCE_PROMPT.md": ["标准模式", "先安装加载", "另行批准", "不能只复制到同一应用目录"],
     }
     missing = []
@@ -2381,6 +2403,7 @@ def main():
     test_v014_d2_copyfile()
     test_v015_d3_chmod()
     test_v017_direct_ownership()
+    test_v018_fab_drag()
     test_docs_fix_round()
 
     passed = sum(1 for r in RESULTS if r["status"] == "pass")
