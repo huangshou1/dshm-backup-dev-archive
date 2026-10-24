@@ -1,3 +1,4 @@
+[FIX_REPORT.md](https://github.com/user-attachments/files/33900299/FIX_REPORT.md)
 # FIX_REPORT.md — 外部源码复核退回修复报告（插件 v0.1.1）
 
 - 修复对象：`dshm-backup-dev/`（插件 `dshm-backup` 0.1.0 → **0.1.1**）。
@@ -336,4 +337,62 @@ canRestore/conflicts 检查）。结果：PASS。
   安装/加载/合成备份/完整性校验/外部导出；卸载与全新恢复必须另行批准。
 - 残余风险：`workspace.json` 运行期写回需冷重启；`DSHM_CORE_DIR` 缺失时版本按 unknown；
   系统文件选择/分享不可用；ZIP64 <4 GiB 限制；`&path:` 安装形式未实测。
+
+---
+
+# v0.1.3 — 手机第一阶段 D1 修复（2026-10-24）
+
+手机第一阶段验收（v0.1.2）结论：安装、冷重启、插件加载、按钮/面板/路由、版本字段检查通过；
+**主动备份与自动基线备份在含附件的实例上 100% 失败**（42%、“复制附件”阶段 EACCES），
+因此第一阶段阻塞。本版修复 D1 及两项上轮非阻断项；仍未进行卸载/清数据/全新恢复/异常测试。
+
+## 19. D1（阻断）：0o400 附件导致 copyFileAtomic 后 fsync 失败
+
+**现象**：附件存在时 manual/baseline 均约 0.2s 失败在 42%，错误指向
+`.../dshm-backup/staging/backup-*/payload/data/attachments/.../*.tmp` 的 `EACCES`。
+
+**根因链（手机实测 + 代码）**：
+1. DSHM `dsh-attachment-local` 把附件对象有意 chmod 为 `0o400`（只读）；
+2. `dshm-backup/lib/util.js` 的 `copyFileAtomic` 使用 `copyFile(source, tmp)`，Node/libuv
+   会让 tmp 继承源文件 mode（0400）；
+3. 随后 `fsyncFile(tmp)` 用 `open(tmp, "r+")`，0400 无写位 → `EACCES`；
+4. 整个备份 job 失败，staging 被清理。
+
+**修改**（`dshm-backup/lib/util.js`）：`copyFileAtomic` 在 `copyFile` 之后显式
+`chmod(tmp, 0o600)`（支持 options.mode 覆盖）再 `fsyncFile/rename`；源文件 mode 不变。
+这样既修复只读附件，也不会让备份 staging 产物保持不可写。
+
+**真实 JS 回归（新增，外部 node 执行；平板未执行）**：
+`test/attachment-copy.test.mjs`
+- 0400 源文件经 `copyFileAtomic` 复制成功，源 mode 仍为 0400，目标 mode 0600；
+- 构造含 0400 附件 + 明文 v4 会话的实例，`createBackup("manual")` 成功、`verifyBackupFile` 通过、
+  manifest 附件 SHA-256 正确、附件进入 ZIP。
+- 覆盖 coreDir=null/platform=null（同时回归 v0.1.2 阻断 2）。
+
+**仍需**：外部真实 node 执行该测试；手机第一阶段重新验收（安装加载 + 合成备份 + 校验 +
+外部导出），通过后才谈后续阶段。**未进行**卸载、清数据、全新恢复或异常测试。
+
+## 20. 上轮非阻断项处理
+
+1. **`test/backup-boundaries.test.mjs` 无 zstd API 环境的可移植性**：
+   增加 `HAS_ZSTD` 检测；无 `zlib.zstdCompressSync` 时自动改用产品同样支持的**明文 v4 会话**
+   fixture（`session.v4.jsonl`），并在测试文件头标注替代路径；不再在 fixture 构造阶段失败。
+2. **`TEST_REPORT.md` 旧概述**：已统一为当前平板检查计数（本轮更新为最新 PASS 数），
+   不再保留“75+/75”歧义表述。
+3. 非阻断观察（未在本版修复，记录为已知限制）：
+   - `state.core.appVersion` 仍为 null：宿主 node 侧无稳定应用版本通道，面板显示 unknown；
+   - 端侧安装器只接受 npm/GitHub 标识、不接受本地目录/zip：属部署流程限制；
+   - 基线失败提示的醒目程度需手机侧人工确认。
+
+## 21. v0.1.3 交付与边界
+
+- 插件版本 **0.1.3**；项目 ZIP 与 SHA-256 在最终汇报中给出（避免文档自引用导致哈希变化）。
+- 平板端可执行部分：esprima 解析全部 JS/测试文件、AST/静态检查、合成 fixture 与 Python 参考回归；
+- **平板未执行真实 JS**（无 node CLI）；真实 JS 测试仍需外部环境：
+  `node --test dshm-backup/test/zip.test.mjs`、
+  `node --test test/backup-boundaries.test.mjs`、
+  `node --test test/restore-boundaries.test.mjs`、
+  `node --test test/attachment-copy.test.mjs`。
+- 手机第一阶段需在外部复跑通过后重新执行；卸载保留、全新实例恢复、真实恢复/回滚与异常测试
+  仍须分别获得明确批准；不得在平板主力实例安装/启用/停用本插件。
 
