@@ -7,6 +7,9 @@
 //   2) coreDir 未确认（platform=null/nodeVersion=null）时 manual/baseline/emergency 仍能生成并校验备份；
 //   3) header 损坏的会话以 complete=false 进入 ZIP/SHA-256，不阻断整份备份；
 //   5) 不完整会话 ID 可从 registry 引用中清除，而真正空会话保留。
+//
+// 可移植性：若当前 Node 无 zlib.zstdCompressSync，自动使用产品同样支持的明文 v4 会话 fixture
+// （session.v4.jsonl），并在运行日志中标注“plaintext fixture (no zstd API)”。
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -59,12 +62,25 @@ function makeRuntime(home, workspace) {
   return { paths, config: {}, versions, logger: util.createLogger(paths.logPath) };
 }
 
+// 测试可移植性：Node 20 等环境可能没有 zlib.zstdCompressSync。
+// 产品同时支持明文 v4 会话（compression=none，文件名 session.v4.jsonl），
+// 因此无 zstd API 时自动改用明文 fixture，并在测试名/日志中标注替代路径。
+const HAS_ZSTD = typeof zlib.zstdCompressSync === "function";
+
 async function writeSession(home, cwd, id, options = {}) {
   const dir = join(home, "sessions", fmt.projectKey(cwd), fmt.encodeSegment(id));
   await mkdir(dir, { recursive: true });
   let bytes;
+  let fileName;
   if (options.corruptHeader) {
-    bytes = zlib.zstdCompressSync(Buffer.from("this-is-not-a-json-header\n", "utf8"));
+    if (HAS_ZSTD) {
+      bytes = zlib.zstdCompressSync(Buffer.from("this-is-not-a-json-header\n", "utf8"));
+      fileName = "session.v4.jsonl.zstd";
+    } else {
+      // 明文损坏 header：同样会被 product 识别为 complete=false
+      bytes = Buffer.from("this-is-not-a-json-header\n", "utf8");
+      fileName = "session.v4.jsonl";
+    }
   } else {
     const header = {
       type: "session",
@@ -76,13 +92,19 @@ async function writeSession(home, cwd, id, options = {}) {
       cwd,
     };
     const event = { seq: 0, time: Date.now(), type: "message/user", data: { text: "synthetic" } };
-    bytes = Buffer.concat([
-      zlib.zstdCompressSync(Buffer.from(JSON.stringify(header) + "\n", "utf8")),
-      zlib.zstdCompressSync(Buffer.from(JSON.stringify(event) + "\n", "utf8")),
-    ]);
+    if (HAS_ZSTD) {
+      bytes = Buffer.concat([
+        zlib.zstdCompressSync(Buffer.from(JSON.stringify(header) + "\n", "utf8")),
+        zlib.zstdCompressSync(Buffer.from(JSON.stringify(event) + "\n", "utf8")),
+      ]);
+      fileName = "session.v4.jsonl.zstd";
+    } else {
+      bytes = Buffer.from(JSON.stringify(header) + "\n" + JSON.stringify(event) + "\n", "utf8");
+      fileName = "session.v4.jsonl";
+    }
   }
-  await writeFile(join(dir, "session.v4.jsonl.zstd"), bytes);
-  return { dir, bytes };
+  await writeFile(join(dir, fileName), bytes);
+  return { dir, bytes, fileName };
 }
 
 async function writeRegistry(home, workspacePath, sessionIds) {
